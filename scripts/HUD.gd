@@ -14,6 +14,7 @@ const SPEEDS: Array = [
 
 var _world: Node = null
 var _info_label: Label
+var _stats_label: Label
 var _buttons: Array[Button] = []
 var _current_speed: float = 1.0
 
@@ -28,6 +29,9 @@ func _process(_delta: float) -> void:
 		return
 	_info_label.text = "개체 수: %d    먹이: %d    배속: %s" % [
 		_world.get_population(), _world.get_food_count(), _speed_text()]
+	var brain: Vector2 = _world.get_avg_brain()
+	_stats_label.text = "세대: %d    평균 수명: %.1fs    평균 뇌: 노드 %.1f / 연결 %.1f" % [
+		_world.get_generation(), _world.get_avg_lifespan(), brain.x, brain.y]
 
 func _build_ui() -> void:
 	var panel := PanelContainer.new()
@@ -46,6 +50,10 @@ func _build_ui() -> void:
 	_info_label = Label.new()
 	_info_label.text = "개체 수: -    먹이: -"
 	vbox.add_child(_info_label)
+
+	_stats_label = Label.new()
+	_stats_label.text = "세대: -    평균 수명: -    평균 뇌: -"
+	vbox.add_child(_stats_label)
 
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 4)

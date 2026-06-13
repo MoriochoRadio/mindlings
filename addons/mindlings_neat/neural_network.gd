@@ -126,7 +126,7 @@ func get_outputs() -> Array:
 		out.append(nodes[id].value)
 	return out
 
-## 깊은 복사(M3 유전 대비). 구조+가중치를 그대로 복제한다.
+## 깊은 복사(M3 유전). 구조+가중치를 그대로 복제한다.
 func clone() -> MindNet:
 	var copy := MindNet.new()
 	for id in nodes:
@@ -135,3 +135,91 @@ func clone() -> MindNet:
 		copy.add_connection(c.from_id, c.to_id, c.weight, c.enabled)
 	copy.compile()
 	return copy
+
+func count_enabled_connections() -> int:
+	var n: int = 0
+	for c in connections:
+		if c.enabled:
+			n += 1
+	return n
+
+## NEAT 돌연변이(M3). 자식 망에 적용한다: 가중치 변이 + 구조 변이(연결/노드 추가).
+## 구조 변이는 피드포워드(비순환)를 유지한다. 변이 후 compile()로 평가 순서 갱신.
+func mutate(weight_rate: float, perturb: float, replace_chance: float,
+		add_conn_chance: float, add_node_chance: float) -> void:
+	for c in connections:
+		if randf() < weight_rate:
+			if randf() < replace_chance:
+				c.weight = randf_range(-1.0, 1.0)
+			else:
+				c.weight = clampf(c.weight + randf_range(-perturb, perturb), -8.0, 8.0)
+	if randf() < add_conn_chance:
+		_mutate_add_connection()
+	if randf() < add_node_chance:
+		_mutate_add_node()
+	compile()
+
+## 기존 연결을 분할: 연결을 끊고 그 사이에 은닉 노드를 넣는다(NEAT add-node).
+func _mutate_add_node() -> void:
+	var enabled: Array = []
+	for c in connections:
+		if c.enabled:
+			enabled.append(c)
+	if enabled.is_empty():
+		return
+	var c: NetConn = enabled[randi() % enabled.size()]
+	c.enabled = false
+	var new_id: int = _next_node_id()
+	add_node(new_id, NodeKind.HIDDEN)
+	# in→new 가중치 1.0, new→out 가중치 = 기존 가중치 → 초기엔 동작이 보존됨.
+	add_connection(c.from_id, new_id, 1.0)
+	add_connection(new_id, c.to_id, c.weight)
+
+## 미연결 노드쌍에 연결 추가(순환을 만들지 않는 범위에서).
+func _mutate_add_connection() -> void:
+	var froms: Array = []
+	var tos: Array = []
+	for id in nodes:
+		var k: int = nodes[id].kind
+		if k == NodeKind.SENSOR or k == NodeKind.BIAS or k == NodeKind.HIDDEN:
+			froms.append(id)
+		if k == NodeKind.HIDDEN or k == NodeKind.OUTPUT:
+			tos.append(id)
+	if froms.is_empty() or tos.is_empty():
+		return
+	for _attempt in 20:
+		var a: int = froms[randi() % froms.size()]
+		var b: int = tos[randi() % tos.size()]
+		if a == b or _connection_exists(a, b) or _creates_cycle(a, b):
+			continue
+		add_connection(a, b, randf_range(-1.0, 1.0))
+		return
+
+func _connection_exists(from_id: int, to_id: int) -> bool:
+	for c in connections:
+		if c.from_id == from_id and c.to_id == to_id:
+			return true
+	return false
+
+## from→to 를 추가하면 순환이 생기는가? (to 가 이미 from 에 도달 가능하면 순환)
+func _creates_cycle(from_id: int, to_id: int) -> bool:
+	var stack: Array = [to_id]
+	var visited: Dictionary = {}
+	while not stack.is_empty():
+		var n: int = stack.pop_back()
+		if n == from_id:
+			return true
+		if visited.has(n):
+			continue
+		visited[n] = true
+		for c in connections:
+			if c.enabled and c.from_id == n:
+				stack.append(c.to_id)
+	return false
+
+func _next_node_id() -> int:
+	var m: int = -1
+	for id in nodes:
+		if id > m:
+			m = id
+	return m + 1

@@ -1,12 +1,12 @@
 class_name BrainBuilder
 extends RefCounted
-## 개체용 신경망 구성(M2). 게임 고유의 센서/출력 배선을 정의한다.
+## 개체용 신경망 구성. 게임 고유의 센서/출력 배선을 정의한다.
 ## NEAT 최소 토폴로지(은닉 없음, 입력→출력 직결)에서 시작한다.
 ##
-## M2는 진화 전이므로, 개체가 의도적으로 먹이를 향하는 모습이 보이도록
-## 먹이 방향→이동 출력에 약한 사전 편향을 주고 나머지 가중치는 무작위로 둔다.
-## (완료 기준: "신경망 출력에 따라 먹이로 향하는 등 의도적으로 보임")
-## M3에서 이 초기화는 부모 유전 + 돌연변이로 대체된다.
+## M3: 이 빌더는 이제 **창시자(gen 0)** 개체에만 쓰인다. 자식은 부모 망을
+## clone() + mutate()로 물려받는다(사전 편향 없음 → 진화로 행동이 떠오른다).
+## 창시자에게만 약한 본능(bias_strength)을 줘 콜드스타트 멸종을 막는다.
+## bias_strength=0 이면 창시자도 완전 무작위 — 순수 진화를 보고 싶을 때.
 
 const SENSOR_COUNT: int = 8
 const OUTPUT_COUNT: int = 3
@@ -29,7 +29,8 @@ const OUT_EAT: int = 2
 const _BIAS_ID: int = 100
 const _OUT_BASE: int = 200
 
-static func build() -> MindNet:
+## 창시자 두뇌를 만든다. bias_strength로 본능 세기 조절(0이면 완전 무작위).
+static func build(bias_strength: float = 0.8) -> MindNet:
 	var net := MindNet.new()
 	for i in SENSOR_COUNT:
 		net.add_node(i, MindNet.NodeKind.SENSOR)
@@ -44,11 +45,12 @@ static func build() -> MindNet:
 	for o in OUTPUT_COUNT:
 		net.add_connection(_BIAS_ID, _OUT_BASE + o, randf_range(-0.2, 0.2))
 
-	# 약한 사전 편향(M2 임시): 먹이 방향으로 이동하고, 기본적으로 먹으려 한다.
-	# (위 직결 가중치에 더해진다 → 합산되어 강한 양의 연결이 된다.)
-	net.add_connection(IN_FOOD_X, _OUT_BASE + OUT_MOVE_X, randf_range(1.2, 1.8))
-	net.add_connection(IN_FOOD_Y, _OUT_BASE + OUT_MOVE_Y, randf_range(1.2, 1.8))
-	net.add_connection(_BIAS_ID, _OUT_BASE + OUT_EAT, randf_range(0.6, 1.2))
+	# 창시자 본능(약함): 먹이 방향으로 이동하고 기본적으로 먹으려 한다.
+	# 위 직결 가중치에 더해진다. bias_strength=0이면 본능 없음(순수 무작위).
+	if bias_strength > 0.0:
+		net.add_connection(IN_FOOD_X, _OUT_BASE + OUT_MOVE_X, randf_range(1.0, 1.6) * bias_strength)
+		net.add_connection(IN_FOOD_Y, _OUT_BASE + OUT_MOVE_Y, randf_range(1.0, 1.6) * bias_strength)
+		net.add_connection(_BIAS_ID, _OUT_BASE + OUT_EAT, randf_range(0.6, 1.0) * bias_strength)
 
 	net.compile()
 	return net

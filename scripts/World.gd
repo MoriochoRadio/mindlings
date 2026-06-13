@@ -1,9 +1,9 @@
 extends Node2D
 class_name World
-## World — 생태계 매니저(M1).
-## 경계 영역·배경을 그리고, 개체 N마리와 먹이를 스폰/관리한다.
-## 렌더/시뮬 책임만 가지며 UI는 HUD가 따로 담당한다.
-## 모든 수치는 @export로 노출해 에디터에서 튜닝한다.
+## World — 생태계 매니저(M3).
+## 경계·배경, 개체/먹이 스폰, 번식(유전+돌연변이) 처리, 통계 수집(세대·수명·뇌 크기),
+## 개체 선택을 담당한다. 렌더/시뮬 책임만 가지며 UI는 HUD가 따로 담당한다.
+## 인구 동역학 파라미터(번식 임계치·돌연변이율·먹이량·대사)는 모두 @export로 노출.
 
 @export_group("월드")
 ## 시뮬레이션 영역 크기(px). 노드 position만큼 화면 안쪽으로 들어가 있다.
@@ -11,27 +11,54 @@ class_name World
 
 @export_group("개체")
 @export var creature_scene: PackedScene
-## 시작 시 스폰할 개체 수.
-@export var initial_creatures: int = 30
-## 개체 수 상한(M3 번식 대비; M1에선 안전장치).
-@export var max_creatures: int = 150
+## 시작 시 스폰할 창시자(gen 0) 수.
+@export var initial_creatures: int = 40
+## 개체 수 상한(인구 폭발 방지).
+@export var max_creatures: int = 120
 
 @export_group("먹이")
 @export var food_scene: PackedScene
 ## 시작 시 깔아둘 먹이 수.
-@export var food_start_count: int = 40
-## 먹이 스폰 주기(초).
-@export var food_spawn_interval: float = 1.5
+@export var food_start_count: int = 60
+## 먹이 스폰 주기(초). 줄이면 먹이 풍부 → 인구↑.
+@export var food_spawn_interval: float = 1.0
 ## 한 번에 스폰하는 먹이 수.
-@export var food_per_spawn: int = 4
+@export var food_per_spawn: int = 6
 ## 맵 위 먹이 수 상한.
-@export var max_food: int = 120
+@export var max_food: int = 150
+
+@export_group("번식/진화")
+## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
+@export var repro_threshold: float = 90.0
+## 번식 시 부모가 소모하는 에너지.
+@export var repro_cost: float = 45.0
+## 자식의 시작 에너지.
+@export var offspring_start_energy: float = 35.0
+## 창시자(gen 0) 본능 세기. 0이면 완전 무작위(순수 진화).
+@export var founder_bias: float = 0.8
+
+@export_subgroup("돌연변이")
+## 연결마다 가중치가 변이될 확률.
+@export_range(0.0, 1.0) var weight_mutate_rate: float = 0.8
+## 가중치 섭동 폭(±).
+@export var weight_perturb: float = 0.35
+## 변이 시 가중치를 완전히 새로 뽑을 확률.
+@export_range(0.0, 1.0) var weight_replace_chance: float = 0.08
+## 번식마다 새 연결이 추가될 확률(구조 진화).
+@export_range(0.0, 1.0) var add_conn_chance: float = 0.05
+## 번식마다 새 은닉 노드가 추가될 확률(구조 진화).
+@export_range(0.0, 1.0) var add_node_chance: float = 0.025
 
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
 @onready var _food_timer: Timer = $FoodTimer
 
 var _bounds: Rect2 = Rect2()
+
+# 통계
+var _max_generation: int = 0
+var _death_age_sum: float = 0.0
+var _death_count: int = 0
 
 func _ready() -> void:
 	add_to_group("world")
@@ -65,8 +92,35 @@ func _spawn_creature(pos: Vector2) -> void:
 		return
 	var c: Creature = creature_scene.instantiate()
 	c.position = pos
-	c.setup(_bounds, self)
+	# 창시자: 약한 본능을 가진 무작위 두뇌(gen 0).
+	c.setup(_bounds, self, BrainBuilder.build(founder_bias))
 	_creatures.add_child(c)
+
+## 부모가 번식 임계치를 넘으면 호출(Creature → World). 자식을 만든다.
+## 자식 두뇌 = 부모 망 clone() 후 mutate(). 성공하면 true.
+func reproduce(parent: Creature) -> bool:
+	if _creatures.get_child_count() >= max_creatures:
+		return false
+	var child_brain: MindNet = parent.get_brain().clone()
+	child_brain.mutate(weight_mutate_rate, weight_perturb, weight_replace_chance,
+		add_conn_chance, add_node_chance)
+
+	var child: Creature = creature_scene.instantiate()
+	var offset := Vector2(randf_range(-22.0, 22.0), randf_range(-22.0, 22.0))
+	child.position = (parent.position + offset).clamp(_bounds.position, _bounds.end)
+	child.generation = parent.generation + 1
+	child.setup(_bounds, self, child_brain)
+	_creatures.add_child(child)
+	child.energy = offspring_start_energy  # _ready 이후라 시작 에너지를 덮어쓴다
+
+	parent.energy -= repro_cost
+	_max_generation = maxi(_max_generation, child.generation)
+	return true
+
+## 개체가 죽을 때 호출(평균 수명 통계용).
+func report_death(age: float) -> void:
+	_death_age_sum += age
+	_death_count += 1
 
 func _spawn_food(pos: Vector2) -> void:
 	if food_scene == null:
@@ -86,6 +140,27 @@ func get_population() -> int:
 
 func get_food_count() -> int:
 	return _food.get_child_count()
+
+func get_generation() -> int:
+	return _max_generation
+
+## 죽은 개체들의 누적 평균 수명(초). 진화로 생존력이 오르면 상승 경향을 보인다.
+func get_avg_lifespan() -> float:
+	return _death_age_sum / _death_count if _death_count > 0 else 0.0
+
+## 살아있는 개체들의 평균 신경망 크기 = Vector2(평균 노드 수, 평균 연결 수).
+## 구조 진화로 은닉 노드·연결이 늘면 증가한다.
+func get_avg_brain() -> Vector2:
+	var n: int = _creatures.get_child_count()
+	if n == 0:
+		return Vector2.ZERO
+	var node_sum: int = 0
+	var conn_sum: int = 0
+	for c in _creatures.get_children():
+		var net: MindNet = c.get_brain()
+		node_sum += net.nodes.size()
+		conn_sum += net.count_enabled_connections()
+	return Vector2(float(node_sum) / n, float(conn_sum) / n)
 
 ## 개체가 센서로 주변을 훑을 때 사용(M2). 매 틱 호출되므로 컨테이너 자식 그대로 반환.
 func get_food_nodes() -> Array:

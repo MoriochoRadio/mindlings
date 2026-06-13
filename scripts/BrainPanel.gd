@@ -36,13 +36,20 @@ func _process(_delta: float) -> void:
 func _layout() -> void:
 	_node_pos.clear()
 	var net: MindNet = _creature.get_brain()
-	var top: float = 40.0
+	var top: float = 44.0
 	var bottom: float = PANEL_SIZE.y - 16.0
 	var inputs: Array = net.sensor_ids.duplicate()
 	if net.bias_id >= 0:
 		inputs.append(net.bias_id)
-	_place_column(inputs, 95.0, top, bottom)
-	_place_column(net.output_ids, PANEL_SIZE.x - 95.0, top, bottom)
+	# 은닉 노드(진화로 생겨난 구조)는 가운데 열에 둔다.
+	var hidden: Array = []
+	for id in net.nodes:
+		if net.nodes[id].kind == MindNet.NodeKind.HIDDEN:
+			hidden.append(id)
+	_place_column(inputs, 88.0, top, bottom)
+	if not hidden.is_empty():
+		_place_column(hidden, PANEL_SIZE.x * 0.5, top, bottom)
+	_place_column(net.output_ids, PANEL_SIZE.x - 88.0, top, bottom)
 
 func _place_column(ids: Array, x: float, top: float, bottom: float) -> void:
 	var n: int = ids.size()
@@ -59,7 +66,8 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(0.05, 0.06, 0.09, 0.85), true)
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(1, 1, 1, 0.12), false, 1.0)
 	draw_string(font, Vector2(10, 24),
-		"개체 두뇌   에너지 %d   나이 %.0fs" % [int(_creature.energy), _creature.age],
+		"두뇌   세대 %d   에너지 %d   나이 %.0fs" % [
+			_creature.generation, int(_creature.energy), _creature.age],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.95))
 
 	# 연결선: 신호(=출발 노드 활성 × 가중치) 부호로 색, 세기로 굵기·불투명도.
@@ -86,17 +94,17 @@ func _draw_labels(font: Font, net: MindNet) -> void:
 	for i in net.sensor_ids.size():
 		if i < Creature.INPUT_LABELS.size():
 			var p: Vector2 = _node_pos[net.sensor_ids[i]]
-			draw_string(font, Vector2(8, p.y + 4), Creature.INPUT_LABELS[i],
-				HORIZONTAL_ALIGNMENT_LEFT, 74, 12, Color(0.78, 0.83, 0.9))
+			draw_string(font, Vector2(6, p.y + 4), Creature.INPUT_LABELS[i],
+				HORIZONTAL_ALIGNMENT_LEFT, 66, 12, Color(0.78, 0.83, 0.9))
 	if net.bias_id >= 0 and _node_pos.has(net.bias_id):
 		var bp: Vector2 = _node_pos[net.bias_id]
-		draw_string(font, Vector2(8, bp.y + 4), "편향",
-			HORIZONTAL_ALIGNMENT_LEFT, 74, 12, Color(0.78, 0.83, 0.9))
+		draw_string(font, Vector2(6, bp.y + 4), "편향",
+			HORIZONTAL_ALIGNMENT_LEFT, 66, 12, Color(0.78, 0.83, 0.9))
 	for o in net.output_ids.size():
 		if o < Creature.OUTPUT_LABELS.size():
 			var p: Vector2 = _node_pos[net.output_ids[o]]
 			draw_string(font, Vector2(p.x + NODE_R + 6, p.y + 4), Creature.OUTPUT_LABELS[o],
-				HORIZONTAL_ALIGNMENT_LEFT, 84, 12, Color(0.78, 0.83, 0.9))
+				HORIZONTAL_ALIGNMENT_LEFT, 70, 12, Color(0.78, 0.83, 0.9))
 
 func _activation_color(v: float) -> Color:
 	var t: float = clampf(v, -1.0, 1.0)

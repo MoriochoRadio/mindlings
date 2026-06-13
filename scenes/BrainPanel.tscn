@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://c5mindlingsbrain"]
+[gd_scene format=3 uid="uid://byvid2a0buv7r"]
 
 [ext_resource type="Script" path="res://scripts/BrainPanel.gd" id="1_brain"]
 

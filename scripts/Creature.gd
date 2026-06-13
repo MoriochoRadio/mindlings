@@ -1,8 +1,8 @@
 extends Area2D
 class_name Creature
-## 개체(생명체) — M2: 개별 신경망(두뇌)으로 행동한다.
-## 센서(입력) → 신경망 forward pass → 이동/먹기(출력). 더 이상 랜덤 워크가 아니다.
-## 아직 진화(번식·유전)는 없다(M3). 튜닝 수치는 @export로 노출.
+## 개체(생명체) — M3: 개별 신경망(두뇌)으로 행동하고, 번식하며 진화한다.
+## 센서(입력) → 신경망 forward pass → 이동/먹기(출력). 에너지가 임계치를 넘으면
+## 번식(부모 망을 물려받아 돌연변이). 굶으면 사망. 튜닝 수치는 @export로 노출.
 
 ## 뇌 시각화 라벨(센서/출력 순서는 brain_builder.gd 인덱스 및 _sense()와 일치).
 const INPUT_LABELS: Array[String] = [
@@ -11,8 +11,10 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 
 @export_group("에너지")
 @export var max_energy: float = 100.0
-@export var start_energy: float = 80.0
-@export var energy_decay: float = 5.0
+## 창시자(gen 0)의 시작 에너지. 자식은 World.offspring_start_energy를 쓴다.
+@export var start_energy: float = 70.0
+## 초당 에너지 감소(대사). 낮추면 오래 살아 인구↑.
+@export var energy_decay: float = 3.5
 
 @export_group("이동/감각")
 @export var move_speed: float = 80.0
@@ -56,6 +58,8 @@ func _physics_process(delta: float) -> void:
 	age += delta
 	energy -= energy_decay * delta
 	if energy <= 0.0:
+		if _world != null:
+			_world.report_death(age)
 		queue_free()
 		return
 
@@ -73,6 +77,10 @@ func _physics_process(delta: float) -> void:
 	position += drive * move_speed * delta
 	position = position.clamp(_bounds.position, _bounds.end)
 	_update_color()
+
+	# 번식: 에너지가 임계치를 넘으면 자식 생성(부모 에너지 일부 소모는 World가 처리).
+	if _world != null and energy >= _world.repro_threshold:
+		_world.reproduce(self)
 
 ## 센서값(0~1 또는 -1~1)을 INPUT_LABELS 순서대로 반환한다.
 func _sense() -> Array:
