@@ -67,4 +67,5 @@ func _set_speed(speed: float) -> void:
 		_buttons[i].button_pressed = is_equal_approx(SPEEDS[i]["value"], speed)
 
 func _speed_text() -> String:
-	return "일시정지" if _current_speed == 0.0 else "%gx" % _current_speed
+	# GDScript의 % 포맷은 %g를 지원하지 않는다(%d/%f/%s 등만). 정수 배속이므로 %d 사용.
+	return "일시정지" if _current_speed == 0.0 else "%dx" % int(_current_speed)
