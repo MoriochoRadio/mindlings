@@ -4,4 +4,4 @@ extends Node2D
 ## (노드 1개 = 책임 1개). M1부터 World/HUD가 씬에 인스턴스로 붙는다.
 
 func _ready() -> void:
-	print("Mindlings — M2: 신경망 두뇌로 움직이는 개체. 개체를 클릭하면 뇌가 보인다.")
+	print("Mindlings — M3: 번식·진화 루프 가동. 개체를 클릭하면 그 아이의 생각과 뇌가 보인다.")

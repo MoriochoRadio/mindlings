@@ -60,6 +60,18 @@ var _max_generation: int = 0
 var _death_age_sum: float = 0.0
 var _death_count: int = 0
 
+# 이정표 토스트 상태(LEGIBILITY_UX 기법4)
+const _GEN_MILESTONES: Array[int] = [10, 25, 50, 100, 200, 500]
+const _BASE_NODE_COUNT: int = BrainBuilder.SENSOR_COUNT + 1 + BrainBuilder.OUTPUT_COUNT
+const _RECENT_MAX: int = 15
+const _LIFESPAN_MULTS: Array[float] = [1.5, 2.0, 3.0]
+var _gen_toasted: int = 0            # 마지막으로 알린 세대 이정표
+var _structure_toasted: bool = false # 첫 은닉 노드 알림 여부
+var _recent_ages: Array[float] = []  # 최근 사망 나이(롤링) — 수명 향상 감지용
+var _lifespan_baseline: float = -1.0
+var _lifespan_toasted: int = 0
+var _check_accum: float = 0.0
+
 func _ready() -> void:
 	add_to_group("world")
 	_bounds = Rect2(Vector2.ZERO, world_size)
@@ -114,13 +126,66 @@ func reproduce(parent: Creature) -> bool:
 	child.energy = offspring_start_energy  # _ready 이후라 시작 에너지를 덮어쓴다
 
 	parent.energy -= repro_cost
-	_max_generation = maxi(_max_generation, child.generation)
+	if child.generation > _max_generation:
+		_max_generation = child.generation
+		_check_generation_milestone()
 	return true
 
-## 개체가 죽을 때 호출(평균 수명 통계용).
+## 개체가 죽을 때 호출(평균 수명 통계용 + 최근 수명 롤링).
 func report_death(age: float) -> void:
 	_death_age_sum += age
 	_death_count += 1
+	_recent_ages.append(age)
+	if _recent_ages.size() > _RECENT_MAX:
+		_recent_ages.pop_front()
+
+## 구조·수명 이정표는 매 프레임 볼 필요가 없으니 약 1.5초마다 점검한다.
+func _process(delta: float) -> void:
+	_check_accum += delta
+	if _check_accum < 1.5:
+		return
+	_check_accum = 0.0
+	_check_structure_milestone()
+	_check_lifespan_milestone()
+
+func _check_generation_milestone() -> void:
+	for g in _GEN_MILESTONES:
+		if _max_generation >= g and _gen_toasted < g:
+			_gen_toasted = g
+			_toast("🌱 벌써 %d세대째예요. 처음보다 훨씬 야무져졌네요!" % g)
+			return
+
+## 평균 뇌 노드 수가 기본값을 넘으면 = 누군가의 뇌에 은닉 노드가 처음 생긴 것.
+func _check_structure_milestone() -> void:
+	if _structure_toasted:
+		return
+	if get_avg_brain().x > float(_BASE_NODE_COUNT) + 0.0005:
+		_structure_toasted = true
+		_toast("✨ 한 아이의 뇌에 새로운 연결이 생겼어요 — 더 똑똑해지는 중이에요!")
+
+## 최근 수명이 초기 기준보다 크게 늘면 알린다(생존력=적합도 상승의 신호).
+func _check_lifespan_milestone() -> void:
+	if _recent_ages.size() < _RECENT_MAX:
+		return
+	var avg: float = _recent_avg_lifespan()
+	if _lifespan_baseline < 0.0:
+		_lifespan_baseline = avg
+		return
+	if _lifespan_toasted < _LIFESPAN_MULTS.size() \
+			and avg >= _lifespan_baseline * _LIFESPAN_MULTS[_lifespan_toasted]:
+		_lifespan_toasted += 1
+		_toast("🎉 이 종족이 먹이를 더 잘 찾도록 진화했어요 — 더 오래 살아요!")
+
+func _recent_avg_lifespan() -> float:
+	if _recent_ages.is_empty():
+		return 0.0
+	var s: float = 0.0
+	for a in _recent_ages:
+		s += a
+	return s / _recent_ages.size()
+
+func _toast(text: String) -> void:
+	get_tree().call_group("toast", "show_toast", text)
 
 func _spawn_food(pos: Vector2) -> void:
 	if food_scene == null:

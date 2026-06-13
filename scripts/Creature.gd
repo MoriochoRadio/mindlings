@@ -33,6 +33,10 @@ var _want_eat: bool = true
 var _bounds: Rect2 = Rect2()
 var _world: World = null
 
+# 뇌 패널의 "생각 한 줄"용 — 마지막 틱의 센서/출력 스냅샷.
+var _last_sense: Array = []
+var _last_out: Array = []
+
 @onready var _body: Polygon2D = $Body
 
 ## World가 스폰 시 호출. 경계·월드 참조·(선택) 미리 만든 두뇌를 넘긴다.
@@ -64,9 +68,12 @@ func _physics_process(delta: float) -> void:
 		return
 
 	# 감각 → 신경망 → 행동.
-	_brain.set_inputs(_sense())
+	var inputs: Array = _sense()
+	_brain.set_inputs(inputs)
 	_brain.propagate()
 	var out: Array = _brain.get_outputs()
+	_last_sense = inputs
+	_last_out = out
 
 	_want_eat = out[BrainBuilder.OUT_EAT] > 0.0
 
@@ -139,3 +146,32 @@ func _on_area_entered(area: Area2D) -> void:
 func _update_color() -> void:
 	var t: float = clampf(energy / max_energy, 0.0, 1.0)
 	_body.color = Color(0.85, 0.4, 0.4).lerp(Color(0.55, 0.85, 0.6), t)
+
+## "생각 한 줄"(LEGIBILITY_UX 기법1): 현재 감각/행동을 1인칭 다정한 말로 통역.
+## 전문 용어 없이, 가장 두드러진 상황을 골라 친근한 문장으로 만든다.
+func get_thought() -> String:
+	if _last_sense.size() < BrainBuilder.SENSOR_COUNT:
+		return "🐣 막 깨어났어…"
+	var food_x: float = _last_sense[BrainBuilder.IN_FOOD_X]
+	var food_y: float = _last_sense[BrainBuilder.IN_FOOD_Y]
+	var food_near: float = _last_sense[BrainBuilder.IN_FOOD_NEAR]
+	var energy_norm: float = _last_sense[BrainBuilder.IN_ENERGY]
+	var density: float = _last_sense[BrainBuilder.IN_DENSITY]
+
+	if food_near > 0.75:
+		return "😋 거의 다 왔다, 먹자!"
+	if food_near > 0.12:
+		return "🍃 %s에 먹이가 있어, 가자!" % _dir_word(food_x, food_y)
+	if energy_norm < 0.35:
+		return "😟 배고픈데 먹이가 안 보여… 두리번두리번"
+	if density > 0.5:
+		return "👀 옆에 친구가 많네."
+	if energy_norm > 0.85:
+		return "🥰 배불러, 여기 좋다."
+	return "🚶 슬슬 둘러보는 중…"
+
+## 먹이 방향 단위벡터를 한국어 방향어로(화면 y는 아래가 양수).
+func _dir_word(dx: float, dy: float) -> String:
+	if absf(dx) >= absf(dy):
+		return "오른쪽" if dx >= 0.0 else "왼쪽"
+	return "아래쪽" if dy >= 0.0 else "위쪽"

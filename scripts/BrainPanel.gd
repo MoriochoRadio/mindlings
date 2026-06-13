@@ -5,7 +5,8 @@ class_name BrainPanel
 ## 본격 실시간 그래프 시각화는 M5에서 확장한다.
 
 const NODE_R: float = 9.0
-const PANEL_SIZE: Vector2 = Vector2(330, 250)
+const PANEL_SIZE: Vector2 = Vector2(344, 286)
+const NODES_TOP: float = 100.0  # 노드 그래프 시작 y(위쪽은 '생각 한 줄'+상태 영역)
 
 var _creature: Creature = null
 var _node_pos: Dictionary = {}   # node id -> 패널 로컬 좌표
@@ -36,7 +37,7 @@ func _process(_delta: float) -> void:
 func _layout() -> void:
 	_node_pos.clear()
 	var net: MindNet = _creature.get_brain()
-	var top: float = 44.0
+	var top: float = NODES_TOP
 	var bottom: float = PANEL_SIZE.y - 16.0
 	var inputs: Array = net.sensor_ids.duplicate()
 	if net.bias_id >= 0:
@@ -65,10 +66,19 @@ func _draw() -> void:
 
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(0.05, 0.06, 0.09, 0.85), true)
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(1, 1, 1, 0.12), false, 1.0)
-	draw_string(font, Vector2(10, 24),
-		"두뇌   세대 %d   에너지 %d   나이 %.0fs" % [
-			_creature.generation, int(_creature.energy), _creature.age],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.95))
+
+	# 1줄: 생각(사람 말로 통역) — 패널의 주인공(LEGIBILITY_UX 기법1·3층 중 2층).
+	draw_string(font, Vector2(12, 28), _creature.get_thought(),
+		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 16, Color(0.96, 0.97, 1.0))
+	# 2줄: 쉬운 상태(숫자 대신 의미). 배부름·나이·세대.
+	var fullness: int = int(round(_creature.energy / _creature.max_energy * 100.0))
+	draw_string(font, Vector2(12, 50),
+		"배부름 %d%%   ·   %d세대째   ·   %.0f살" % [fullness, _creature.generation, _creature.age],
+		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 12, Color(0.72, 0.78, 0.86))
+	# 구분선 + 아래는 '진짜 뇌'(고급 정보, 단계적 공개의 3층 자리).
+	draw_line(Vector2(12, 66), Vector2(PANEL_SIZE.x - 12, 66), Color(1, 1, 1, 0.10), 1.0)
+	draw_string(font, Vector2(12, 82), "이 아이의 진짜 뇌 (고급)",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.6, 0.68))
 
 	# 연결선: 신호(=출발 노드 활성 × 가중치) 부호로 색, 세기로 굵기·불투명도.
 	for c in net.connections:
