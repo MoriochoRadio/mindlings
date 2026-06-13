@@ -1,71 +1,133 @@
 extends Area2D
 class_name Creature
-## 개체(생명체) — M1 버전.
-## 아직 신경망은 없다(M2). 랜덤 워크로 떠돌며, 시간당 에너지가 줄고,
-## 먹이에 닿으면 에너지를 얻고, 0이 되면 죽는다(제거).
-## 튜닝 파라미터는 모두 @export로 노출해 에디터에서 조절한다.
+## 개체(생명체) — M2: 개별 신경망(두뇌)으로 행동한다.
+## 센서(입력) → 신경망 forward pass → 이동/먹기(출력). 더 이상 랜덤 워크가 아니다.
+## 아직 진화(번식·유전)는 없다(M3). 튜닝 수치는 @export로 노출.
+
+## 뇌 시각화 라벨(센서/출력 순서는 brain_builder.gd 인덱스 및 _sense()와 일치).
+const INPUT_LABELS: Array[String] = [
+	"먹이→x", "먹이→y", "먹이근접", "에너지", "동족→x", "동족→y", "밀도", "나이"]
+const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 
 @export_group("에너지")
-## 최대 에너지(포만 상한).
 @export var max_energy: float = 100.0
-## 출생 시 시작 에너지.
 @export var start_energy: float = 80.0
-## 초당 에너지 감소량(대사). 클수록 빨리 굶는다.
 @export var energy_decay: float = 5.0
 
-@export_group("이동")
-## 이동 속도(px/s).
-@export var move_speed: float = 70.0
-## 방향 흔들림(rad/s). 클수록 더 갈팡질팡(랜덤 워크 강도).
-@export var turn_rate: float = 4.0
+@export_group("이동/감각")
+@export var move_speed: float = 80.0
+## 센서가 먹이·동족을 감지하는 반경(px).
+@export var sense_radius: float = 220.0
+## 나이 입력을 0~1로 정규화하는 기준 시간(초).
+@export var age_reference: float = 60.0
 
-## 현재 에너지. 0 이하가 되면 사망.
 var energy: float = 0.0
+var age: float = 0.0
+var generation: int = 0
 
-var _heading: float = 0.0          # 현재 진행 방향(라디안)
-var _bounds: Rect2 = Rect2()       # 돌아다닐 수 있는 월드 경계(로컬 좌표)
+var _brain: MindNet = null
+var _heading: float = 0.0
+var _want_eat: bool = true
+var _bounds: Rect2 = Rect2()
+var _world: World = null
 
 @onready var _body: Polygon2D = $Body
 
-## World가 개체를 스폰할 때 호출해 활동 경계를 알려준다.
-func setup(bounds: Rect2) -> void:
+## World가 스폰 시 호출. 경계·월드 참조·(선택) 미리 만든 두뇌를 넘긴다.
+func setup(bounds: Rect2, world: World, brain: MindNet = null) -> void:
 	_bounds = bounds
+	_world = world
+	if brain != null:
+		_brain = brain
 
 func _ready() -> void:
+	if _brain == null:
+		_brain = BrainBuilder.build()
 	energy = start_energy
 	_heading = randf() * TAU
 	rotation = _heading
 	area_entered.connect(_on_area_entered)
 	_update_color()
 
+func get_brain() -> MindNet:
+	return _brain
+
 func _physics_process(delta: float) -> void:
-	# 대사: 에너지 감소 → 0 이하면 사망.
+	age += delta
 	energy -= energy_decay * delta
 	if energy <= 0.0:
 		queue_free()
 		return
 
-	# 랜덤 워크: 방향을 조금씩 흔든다.
-	_heading += randf_range(-turn_rate, turn_rate) * delta
+	# 감각 → 신경망 → 행동.
+	_brain.set_inputs(_sense())
+	_brain.propagate()
+	var out: Array = _brain.get_outputs()
 
-	# 경계 밖으로 나가려 하면 반사시킨다.
-	var next_pos: Vector2 = position + Vector2.RIGHT.rotated(_heading) * move_speed * delta
-	if next_pos.x < _bounds.position.x or next_pos.x > _bounds.end.x:
-		_heading = PI - _heading
-	if next_pos.y < _bounds.position.y or next_pos.y > _bounds.end.y:
-		_heading = -_heading
+	_want_eat = out[BrainBuilder.OUT_EAT] > 0.0
 
-	position += Vector2.RIGHT.rotated(_heading) * move_speed * delta
+	var drive := Vector2(out[BrainBuilder.OUT_MOVE_X], out[BrainBuilder.OUT_MOVE_Y]).limit_length(1.0)
+	if drive.length() > 0.01:
+		_heading = drive.angle()
+		rotation = _heading
+	position += drive * move_speed * delta
 	position = position.clamp(_bounds.position, _bounds.end)
-	rotation = _heading
 	_update_color()
 
+## 센서값(0~1 또는 -1~1)을 INPUT_LABELS 순서대로 반환한다.
+func _sense() -> Array:
+	var food_dir := Vector2.ZERO
+	var food_near: float = 0.0
+	var nearest_food: Node2D = null
+	var best_d2: float = sense_radius * sense_radius
+	if _world != null:
+		for f in _world.get_food_nodes():
+			var d2: float = position.distance_squared_to(f.position)
+			if d2 < best_d2:
+				best_d2 = d2
+				nearest_food = f
+	if nearest_food != null:
+		var to_f: Vector2 = nearest_food.position - position
+		var dist: float = to_f.length()
+		if dist > 0.001:
+			food_dir = to_f / dist
+		food_near = 1.0 - clampf(dist / sense_radius, 0.0, 1.0)
+
+	var kin_dir := Vector2.ZERO
+	var kin_count: int = 0
+	var nearest_kin: Node2D = null
+	var kbest: float = sense_radius * sense_radius
+	var radius2: float = sense_radius * sense_radius
+	if _world != null:
+		for c in _world.get_creature_nodes():
+			if c == self:
+				continue
+			var d2: float = position.distance_squared_to(c.position)
+			if d2 < radius2:
+				kin_count += 1
+			if d2 < kbest:
+				kbest = d2
+				nearest_kin = c
+	if nearest_kin != null:
+		var to_k: Vector2 = nearest_kin.position - position
+		var kd: float = to_k.length()
+		if kd > 0.001:
+			kin_dir = to_k / kd
+
+	var density: float = clampf(float(kin_count) / 10.0, 0.0, 1.0)
+	var energy_norm: float = clampf(energy / max_energy, 0.0, 1.0)
+	var age_norm: float = clampf(age / age_reference, 0.0, 1.0)
+
+	return [food_dir.x, food_dir.y, food_near, energy_norm,
+		kin_dir.x, kin_dir.y, density, age_norm]
+
 func _on_area_entered(area: Area2D) -> void:
-	if area is Food:
+	# 신경망의 "먹기" 출력이 양수일 때만 실제로 먹는다(먹기 시도 매핑).
+	if _want_eat and area is Food:
 		energy = minf(energy + (area as Food).consume(), max_energy)
 		_update_color()
 
-## 에너지에 따라 몸 색을 빨강(굶주림)→초록(포만)으로. 가독성(기둥 ②)의 작은 씨앗.
+## 에너지에 따라 몸 색을 빨강(굶주림)→초록(포만)으로(가독성 기둥 ②의 씨앗).
 func _update_color() -> void:
 	var t: float = clampf(energy / max_energy, 0.0, 1.0)
 	_body.color = Color(0.85, 0.4, 0.4).lerp(Color(0.55, 0.85, 0.6), t)

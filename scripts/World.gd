@@ -65,7 +65,7 @@ func _spawn_creature(pos: Vector2) -> void:
 		return
 	var c: Creature = creature_scene.instantiate()
 	c.position = pos
-	c.setup(_bounds)
+	c.setup(_bounds, self)
 	_creatures.add_child(c)
 
 func _spawn_food(pos: Vector2) -> void:
@@ -86,3 +86,24 @@ func get_population() -> int:
 
 func get_food_count() -> int:
 	return _food.get_child_count()
+
+## 개체가 센서로 주변을 훑을 때 사용(M2). 매 틱 호출되므로 컨테이너 자식 그대로 반환.
+func get_food_nodes() -> Array:
+	return _food.get_children()
+
+func get_creature_nodes() -> Array:
+	return _creatures.get_children()
+
+## 좌클릭으로 가장 가까운 개체를 선택해 뇌 시각화 패널에 전달한다(빈 곳 클릭 시 해제).
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		var m: Vector2 = get_local_mouse_position()
+		var nearest: Creature = null
+		var best: float = 28.0 * 28.0
+		for c in get_creature_nodes():
+			var d2: float = m.distance_squared_to(c.position)
+			if d2 < best:
+				best = d2
+				nearest = c
+		get_tree().call_group("brain_panel", "select_creature", nearest)

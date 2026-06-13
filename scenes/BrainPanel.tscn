@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://c5mindlingsbrain"]
+
+[ext_resource type="Script" path="res://scripts/BrainPanel.gd" id="1_brain"]
+
+[node name="BrainPanel" type="Control"]
+script = ExtResource("1_brain")

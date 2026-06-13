@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3 uid="uid://b8mindlings0main"]
+[gd_scene load_steps=5 format=3 uid="uid://b8mindlings0main"]
 
 [ext_resource type="Script" path="res://scripts/Main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/World.tscn" id="2_world"]
 [ext_resource type="PackedScene" path="res://scenes/HUD.tscn" id="3_hud"]
+[ext_resource type="PackedScene" path="res://scenes/BrainPanel.tscn" id="4_brain"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
@@ -12,3 +13,5 @@ script = ExtResource("1_main")
 [node name="UI" type="CanvasLayer" parent="."]
 
 [node name="HUD" parent="UI" instance=ExtResource("3_hud")]
+
+[node name="BrainPanel" parent="UI" instance=ExtResource("4_brain")]
