@@ -1,0 +1,27 @@
+# Godot 4+ 임포트 캐시 / 엔진 생성물
+.godot/
+.import/
+*.import
+
+# 익스포트 설정(로컬) / 빌드 산출물
+export.cfg
+export_presets.cfg
+/build/
+/exports/
+*.exe
+*.pck
+*.zip
+
+# 자동 생성 번역
+*.translation
+
+# C#/Mono (성능 병목 시 도입할 경우)
+.mono/
+data_*/
+mono_crash.*.json
+
+# OS / 에디터 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
