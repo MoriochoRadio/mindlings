@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3 uid="uid://c1mindlingscreature"]
+
+[ext_resource type="Script" path="res://scripts/Creature.gd" id="1_creature"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_creature"]
+radius = 7.0
+
+[node name="Creature" type="Area2D"]
+collision_layer = 1
+collision_mask = 2
+script = ExtResource("1_creature")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_creature")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.6, 0.85, 0.65, 1)
+polygon = PackedVector2Array(9, 0, -6, 5, -6, -5)

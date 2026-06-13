@@ -1,0 +1,70 @@
+extends Control
+## HUD — 관찰 UI(M1).
+## 시간 배속 토글(일시정지/1x/2x/5x)과 개체 수·먹이 수 표시.
+## 배속은 Engine.time_scale로 구현 → 일시정지(0)에서도 UI는 계속 갱신된다.
+## 위젯은 코드로 구성해 .tscn을 단순하게 유지한다.
+
+## 표시 순서 유지를 위해 배열로 정의(딕셔너리 순서 의존 회피).
+const SPEEDS: Array = [
+	{"label": "❚❚", "value": 0.0},
+	{"label": "1x", "value": 1.0},
+	{"label": "2x", "value": 2.0},
+	{"label": "5x", "value": 5.0},
+]
+
+var _world: Node = null
+var _info_label: Label
+var _buttons: Array[Button] = []
+var _current_speed: float = 1.0
+
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE  # 전체 화면 Control이 입력을 먹지 않게
+	_world = get_tree().get_first_node_in_group("world")
+	_build_ui()
+	_set_speed(1.0)
+
+func _process(_delta: float) -> void:
+	if _world == null:
+		return
+	_info_label.text = "개체 수: %d    먹이: %d    배속: %s" % [
+		_world.get_population(), _world.get_food_count(), _speed_text()]
+
+func _build_ui() -> void:
+	var panel := PanelContainer.new()
+	panel.position = Vector2(10, 10)
+	add_child(panel)
+
+	var margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 8)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	margin.add_child(vbox)
+
+	_info_label = Label.new()
+	_info_label.text = "개체 수: -    먹이: -"
+	vbox.add_child(_info_label)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 4)
+	vbox.add_child(hbox)
+
+	for entry in SPEEDS:
+		var b := Button.new()
+		b.text = entry["label"]
+		b.toggle_mode = true
+		b.custom_minimum_size = Vector2(40, 0)
+		b.pressed.connect(_set_speed.bind(entry["value"]))
+		hbox.add_child(b)
+		_buttons.append(b)
+
+func _set_speed(speed: float) -> void:
+	_current_speed = speed
+	Engine.time_scale = speed
+	for i in _buttons.size():
+		_buttons[i].button_pressed = is_equal_approx(SPEEDS[i]["value"], speed)
+
+func _speed_text() -> String:
+	return "일시정지" if _current_speed == 0.0 else "%gx" % _current_speed
