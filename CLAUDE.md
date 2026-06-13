@@ -12,6 +12,7 @@
 - 게임 설계: `docs/GAME_DESIGN.md`
 - 기술 스택: `docs/TECH_STACK.md`
 - 로드맵 & 작업 명세: `docs/ROADMAP.md`  ← 작업 지시는 보통 "M2 구현" 식으로 들어온다
+- 시장 분석 & 차별화 전략: `docs/MARKET_ANALYSIS.md`  ← 기능 결정 시 "차별화 4기둥(8장)을 강화하나?"로 판단
 
 ## 기술 스택 (요약)
 - 엔진: **Godot 4.4+** / 언어: **GDScript**(성능 병목 시 C# 검토)
