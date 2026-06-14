@@ -13,6 +13,7 @@ const TOOLS: Array = [
 	{"id": GodTools.Tool.PREDATOR, "label": "🦅 포식자", "key": KEY_4, "hint": "4"},
 	{"id": GodTools.Tool.WALL, "label": "🧱 지형", "key": KEY_5, "hint": "5"},
 	{"id": GodTools.Tool.LIFE, "label": "✨ 생명", "key": KEY_6, "hint": "6"},
+	{"id": GodTools.Tool.REFUGE, "label": "🏠 안전지대", "key": KEY_7, "hint": "7"},
 ]
 
 var _buttons: Array[Button] = []

@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://c8mindlingsfoodsource"]
+[gd_scene format=3 uid="uid://dgacg78k23asy"]
 
 [ext_resource type="Script" path="res://scripts/food_source.gd" id="1_foodsrc"]
 

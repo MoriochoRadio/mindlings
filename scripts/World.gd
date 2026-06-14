@@ -31,6 +31,17 @@ class_name World
 @export var initial_food_sources: int = 6
 ## 플레이어가 심을 수 있는 군락 절대 상한(성능 보호).
 @export var max_food_sources: int = 40
+## 시작 군락 사이 최소 간격(px). 초기 군락이 겹쳐 형성되는 것을 막는다(거부 샘플링).
+@export var initial_source_min_dist: float = 260.0
+
+@export_group("안전지대(은신처)")
+@export var refuge_scene: PackedScene
+## 시작 시 놓는 안전지대 수(한두 개면 회피 진화의 발판이 된다). 0이면 플레이어가 직접 놓는다.
+@export var initial_refuges: int = 2
+## 플레이어가 놓을 수 있는 안전지대 절대 상한(성능 보호).
+@export var max_refuges: int = 20
+## 시작 안전지대 사이 최소 간격(px) — 초기 배치 겹침 방지.
+@export var refuge_min_dist: float = 340.0
 
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
@@ -87,6 +98,7 @@ class_name World
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
 @onready var _food_sources: Node2D = $FoodSources
+@onready var _refuges: Node2D = $Refuges
 @onready var _predators: Node2D = $Predators
 
 var _bounds: Rect2 = Rect2()
@@ -156,11 +168,31 @@ func _draw() -> void:
 
 func _spawn_initial() -> void:
 	# 먼저 식물 군락을 심는다(각 군락은 _ready에서 주변에 먹이를 즉시 채운다).
+	# 서로 최소 간격을 둬 겹쳐 형성되는 것을 막는다(거부 샘플링).
 	for i in initial_food_sources:
-		_spawn_food_source(_random_point())
+		_spawn_food_source(_scattered_point(_food_sources, initial_source_min_dist))
+	# 안전지대를 한두 개 둔다 — 회피 진화가 자리 잡을 발판(도망쳐도 갈 곳이 있게).
+	for i in initial_refuges:
+		_spawn_refuge(_scattered_point(_refuges, refuge_min_dist))
 	# 개체는 군락 근처에서 시작 — 초반 대량 아사 방지(즉시 멸종 안 나게).
 	for i in initial_creatures:
 		_spawn_creature(_creature_start_point())
+
+## 컨테이너의 기존 자식들과 최소 간격을 두는 점을 거부 샘플링으로 찾는다(겹침 방지).
+## 빈 공간을 못 찾으면(꽉 찬 경우) 마지막 후보를 그대로 쓴다 — 무한 루프 없이 graceful.
+func _scattered_point(container: Node2D, min_dist: float) -> Vector2:
+	var min_d2: float = min_dist * min_dist
+	var p: Vector2 = _random_point()
+	for _try in 24:
+		p = _random_point()
+		var ok: bool = true
+		for s in container.get_children():
+			if p.distance_squared_to(s.position) < min_d2:
+				ok = false
+				break
+		if ok:
+			return p
+	return p
 
 ## 시작 개체 위치: 무작위 군락 근처. 군락이 없으면 완전 무작위.
 func _creature_start_point() -> Vector2:
@@ -370,6 +402,51 @@ func remove_food_sources_near(local_pos: Vector2, radius: float) -> int:
 			s.queue_free()
 			removed += 1
 	return removed
+
+## 🏠 안전지대 도구: 그 자리에 은신처를 놓는다(드래그로 여러 개). 상한에 걸리면 false.
+func spawn_refuge_at(local_pos: Vector2) -> bool:
+	if refuge_scene == null or _refuges.get_child_count() >= max_refuges:
+		return false
+	_spawn_refuge(local_pos.clamp(_bounds.position, _bounds.end))
+	return true
+
+func _spawn_refuge(pos: Vector2) -> void:
+	if refuge_scene == null:
+		return
+	var r: Refuge = refuge_scene.instantiate()
+	r.position = pos
+	_refuges.add_child(r)
+
+## 보조 모드: 반경 안의 안전지대를 제거(지우개/우클릭). 지운 개수를 반환.
+func remove_refuges_near(local_pos: Vector2, radius: float) -> int:
+	var r2: float = radius * radius
+	var removed: int = 0
+	for r in _refuges.get_children():
+		if local_pos.distance_squared_to(r.position) <= r2:
+			r.queue_free()
+			removed += 1
+	return removed
+
+## 개체가 안전지대 센서로 가장 가까운 은신처를 훑을 때 사용(매 틱). 은신처는 소수라 직접 순회.
+func get_refuge_nodes() -> Array:
+	return _refuges.get_children()
+
+## 이 위치가 어떤 안전지대 안인가 — 포식 차단·생각 한 줄 공용(은신처는 소수라 직접 순회).
+func is_sheltered(p: Vector2) -> bool:
+	for r in _refuges.get_children():
+		if (r as Refuge).contains(p):
+			return true
+	return false
+
+## 포식자가 이 위치에서 받는 속도 배율(안전지대 안이면 느려진다). 밖이면 1.0.
+## 여러 은신처가 겹치면 가장 강한 감속을 적용한다.
+func predator_speed_factor(p: Vector2) -> float:
+	var f: float = 1.0
+	for r in _refuges.get_children():
+		var rf: Refuge = r as Refuge
+		if rf.contains(p):
+			f = minf(f, 1.0 - rf.predator_slow)
+	return f
 
 ## 신의 도구가 그 자리에 새 창시자(gen 0)를 만든다(M4-4 생명 생성). 전멸에서도 부활 가능.
 ## 두뇌 = BrainBuilder.build(founder_bias): 새 뇌 + 약한 사전 편향(현재 14입력 레이아웃).

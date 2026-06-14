@@ -8,7 +8,7 @@ extends RefCounted
 ## 창시자에게만 약한 본능(bias_strength)을 줘 콜드스타트 멸종을 막는다.
 ## bias_strength=0 이면 창시자도 완전 무작위 — 순수 진화를 보고 싶을 때.
 
-const SENSOR_COUNT: int = 14
+const SENSOR_COUNT: int = 17
 const OUTPUT_COUNT: int = 3
 
 # 센서(입력) 인덱스 — Creature.INPUT_LABELS / _sense() 순서와 일치해야 한다.
@@ -32,6 +32,12 @@ const IN_PRED_NEAR: int = 10
 const IN_WALL_L: int = 11
 const IN_WALL_C: int = 12
 const IN_WALL_R: int = 13
+# 안전지대(은신처) 센서. 가장 가까운 안전지대의 방향(단위벡터)+근접도.
+# 출력은 새로 안 만든다 — 기존 이동 출력으로 '숨기'가 진화한다(GAME_DESIGN 4장: 감각+행동 짝).
+# 창시자에 숨기 본능은 주지 않는다 → 세대를 거쳐 '안전지대로 도망치기'가 스스로 떠오른다.
+const IN_REFUGE_X: int = 14
+const IN_REFUGE_Y: int = 15
+const IN_REFUGE_NEAR: int = 16
 
 # 출력 인덱스 — Creature.OUTPUT_LABELS 순서와 일치해야 한다.
 const OUT_MOVE_X: int = 0

@@ -66,8 +66,10 @@ func _physics_process(delta: float) -> void:
 	if prey != null:
 		var to_prey: Vector2 = prey.position - position
 		var dist: float = to_prey.length()
-		# 사냥: 닿을 거리 + 쿨다운 준비 + 아직 안 잡힌 먹잇감.
-		if dist <= catch_radius and _cooldown <= 0.0 and prey.try_catch():
+		# 사냥: 닿을 거리 + 쿨다운 준비 + 안전지대 밖 + 아직 안 잡힌 먹잇감.
+		# is_sheltered를 try_catch보다 먼저 단락 평가 — 안전지대 안 먹잇감을 '죽은 것으로 표시'하지 않게.
+		if dist <= catch_radius and _cooldown <= 0.0 \
+				and not (_world != null and _world.is_sheltered(prey.position)) and prey.try_catch():
 			energy = minf(energy + energy_per_kill, max_energy)
 			_cooldown = hunt_cooldown
 			if _world != null:
@@ -81,7 +83,11 @@ func _physics_process(delta: float) -> void:
 	if moving.length() > 0.01:
 		# 부드러운 선회(각도 보간). 급선회하는 먹잇감은 turn_rate가 낮을수록 놓친다.
 		_heading = lerp_angle(_heading, moving.angle(), clampf(turn_rate * delta, 0.0, 1.0))
-		var step: Vector2 = Vector2.from_angle(_heading) * move_speed * delta
+		# 안전지대 안에선 느려진다(predator_slow) — 숨은 먹잇감을 끝까지 쫓기 어렵게(균형).
+		var spd: float = move_speed
+		if _world != null:
+			spd *= _world.predator_speed_factor(position)
+		var step: Vector2 = Vector2.from_angle(_heading) * spd * delta
 		if _world != null:
 			step = _world.slide_at_bounds(position, step)  # 경계에 박히지 말고 미끄러지게
 		if step.length() > 0.001:
