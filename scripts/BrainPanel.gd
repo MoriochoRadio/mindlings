@@ -5,8 +5,8 @@ class_name BrainPanel
 ## 본격 실시간 그래프 시각화는 M5에서 확장한다.
 
 const NODE_R: float = 9.0
-# 높이는 입력 노드 수에 맞춰 잡는다(M4-2에서 위험 센서 3개 추가 → 입력 11 + 편향 = 12행).
-const PANEL_SIZE: Vector2 = Vector2(344, 340)
+# 높이는 입력 노드 수에 맞춰 잡는다(M4-3b에서 벽 더듬이 3개 추가 → 입력 14 + 편향 = 15행).
+const PANEL_SIZE: Vector2 = Vector2(344, 400)
 const NODES_TOP: float = 100.0  # 노드 그래프 시작 y(위쪽은 '생각 한 줄'+상태 영역)
 
 var _creature: Creature = null

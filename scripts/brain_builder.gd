@@ -8,7 +8,7 @@ extends RefCounted
 ## 창시자에게만 약한 본능(bias_strength)을 줘 콜드스타트 멸종을 막는다.
 ## bias_strength=0 이면 창시자도 완전 무작위 — 순수 진화를 보고 싶을 때.
 
-const SENSOR_COUNT: int = 11
+const SENSOR_COUNT: int = 14
 const OUTPUT_COUNT: int = 3
 
 # 센서(입력) 인덱스 — Creature.INPUT_LABELS / _sense() 순서와 일치해야 한다.
@@ -26,6 +26,12 @@ const IN_AGE: int = 7
 const IN_PRED_X: int = 8
 const IN_PRED_Y: int = 9
 const IN_PRED_NEAR: int = 10
+# M4-3b: 벽 더듬이(whisker) 센서. 진행방향 기준 전방-좌/전방/전방-우의 '가까운 벽까지 거리'
+# (가까울수록 1). 회피 본능은 창시자에 주지 않는다 → 길찾기가 세대를 거쳐 스스로 떠오른다.
+# 출력은 기존 이동 출력 재사용(GAME_DESIGN 4장: 감각+행동이 짝).
+const IN_WALL_L: int = 11
+const IN_WALL_C: int = 12
+const IN_WALL_R: int = 13
 
 # 출력 인덱스 — Creature.OUTPUT_LABELS 순서와 일치해야 한다.
 const OUT_MOVE_X: int = 0

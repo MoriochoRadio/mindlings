@@ -351,6 +351,56 @@ func _stamp_wall(local_pos: Vector2, radius: float, add: bool) -> bool:
 func _cell_blocked(p: Vector2) -> bool:
 	return _walls.has(_cell_of(p))
 
+# ── 지형 인지(M4-3b) — 가시선/더듬이. 벽이 없으면 전부 패스스루(비용 0) ──────────
+
+## a→b 사이에 벽이 있으면 true(시야 차단). 끝점 b의 칸은 검사에서 제외(먹이/포식자 자신).
+func is_blocked_between(a: Vector2, b: Vector2) -> bool:
+	if _walls.is_empty():
+		return false
+	var d: Vector2 = b - a
+	var dist: float = d.length()
+	if dist < 0.001:
+		return false
+	return _ray_wall_hit(a, d, dist) < dist - 0.001
+
+## origin에서 dir 방향으로 max_dist까지 첫 벽까지의 거리. 없으면 max_dist.
+## 시작 칸은 검사하지 않는다(벽 안에서 시작해도 마비되지 않게). 그리드 DDA(Amanatides–Woo).
+func _ray_wall_hit(origin: Vector2, dir: Vector2, max_dist: float) -> float:
+	if _walls.is_empty() or dir.length_squared() < 1e-8:
+		return max_dist
+	var n: Vector2 = dir.normalized()
+	var cx: int = floori(origin.x / wall_cell)
+	var cy: int = floori(origin.y / wall_cell)
+	var step_x: int = 1 if n.x >= 0.0 else -1
+	var step_y: int = 1 if n.y >= 0.0 else -1
+	var t_delta_x: float = INF if absf(n.x) < 1e-8 else absf(float(wall_cell) / n.x)
+	var t_delta_y: float = INF if absf(n.y) < 1e-8 else absf(float(wall_cell) / n.y)
+	var next_bx: float = float((cx + (1 if step_x > 0 else 0)) * wall_cell)
+	var next_by: float = float((cy + (1 if step_y > 0 else 0)) * wall_cell)
+	var t_max_x: float = INF if absf(n.x) < 1e-8 else (next_bx - origin.x) / n.x
+	var t_max_y: float = INF if absf(n.y) < 1e-8 else (next_by - origin.y) / n.y
+	var t: float = 0.0
+	while t <= max_dist:
+		if t_max_x < t_max_y:
+			cx += step_x
+			t = t_max_x
+			t_max_x += t_delta_x
+		else:
+			cy += step_y
+			t = t_max_y
+			t_max_y += t_delta_y
+		if t > max_dist:
+			break
+		if _walls.has(Vector2i(cx, cy)):
+			return t
+	return max_dist
+
+## 더듬이: origin에서 dir로 max_dist까지, 가까운 벽일수록 1(없으면 0). 신경망 입력용.
+func whisker(origin: Vector2, dir: Vector2, max_dist: float) -> float:
+	if _walls.is_empty():
+		return 0.0
+	return 1.0 - clampf(_ray_wall_hit(origin, dir, max_dist) / max_dist, 0.0, 1.0)
+
 ## 벽 칸 위에 놓인 먹이를 모두 제거한다(벽을 칠한 직후 호출 — 도달 불가 먹이 정리).
 func _remove_food_in_walls() -> void:
 	for f in _food.get_children():

@@ -7,7 +7,7 @@ class_name Creature
 ## 뇌 시각화 라벨(센서/출력 순서는 brain_builder.gd 인덱스 및 _sense()와 일치).
 const INPUT_LABELS: Array[String] = [
 	"먹이→x", "먹이→y", "먹이근접", "에너지", "동족→x", "동족→y", "밀도", "나이",
-	"위험→x", "위험→y", "위험근접"]
+	"위험→x", "위험→y", "위험근접", "벽-좌", "벽-앞", "벽-우"]
 const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 
 @export_group("에너지")
@@ -23,6 +23,10 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var sense_radius: float = 220.0
 ## 나이 입력을 0~1로 정규화하는 기준 시간(초).
 @export var age_reference: float = 60.0
+## 벽 더듬이 길이(px). 이 거리 안의 벽을 느낀다(가까울수록 1).
+@export var whisker_length: float = 60.0
+## 더듬이 좌/우 벌어짐 각도(라디안). 전방 기준 ±이 각도.
+@export var whisker_spread: float = 0.7
 
 var energy: float = 0.0
 var age: float = 0.0
@@ -106,6 +110,10 @@ func _physics_process(delta: float) -> void:
 
 ## 센서값(0~1 또는 -1~1)을 INPUT_LABELS 순서대로 반환한다.
 func _sense() -> Array:
+	# 벽이 있으면 시야 차단(occlusion)을 적용해 '안 보이는' 먹이/포식자는 무시한다.
+	# → 도달 못 할 먹이에 집착해 벽에 박히는 현상이 준다. 벽이 없으면 검사 스킵(비용 0).
+	var walls: bool = _world != null and _world.has_walls()
+
 	var food_dir := Vector2.ZERO
 	var food_near: float = 0.0
 	var nearest_food: Node2D = null
@@ -113,7 +121,7 @@ func _sense() -> Array:
 	if _world != null:
 		for f in _world.get_food_nodes():
 			var d2: float = position.distance_squared_to(f.position)
-			if d2 < best_d2:
+			if d2 < best_d2 and not (walls and _world.is_blocked_between(position, f.position)):
 				best_d2 = d2
 				nearest_food = f
 	if nearest_food != null:
@@ -153,7 +161,7 @@ func _sense() -> Array:
 	if _world != null:
 		for p in _world.get_predator_nodes():
 			var d2: float = position.distance_squared_to(p.position)
-			if d2 < pbest:
+			if d2 < pbest and not (walls and _world.is_blocked_between(position, p.position)):
 				pbest = d2
 				nearest_pred = p
 	if nearest_pred != null:
@@ -167,9 +175,19 @@ func _sense() -> Array:
 	var energy_norm: float = clampf(energy / max_energy, 0.0, 1.0)
 	var age_norm: float = clampf(age / age_reference, 0.0, 1.0)
 
+	# 벽 더듬이: 진행방향 기준 전방-좌/전방/전방-우의 가까운 벽까지 거리(가까울수록 1).
+	var wall_l: float = 0.0
+	var wall_c: float = 0.0
+	var wall_r: float = 0.0
+	if walls:
+		wall_l = _world.whisker(position, Vector2.from_angle(_heading - whisker_spread), whisker_length)
+		wall_c = _world.whisker(position, Vector2.from_angle(_heading), whisker_length)
+		wall_r = _world.whisker(position, Vector2.from_angle(_heading + whisker_spread), whisker_length)
+
 	return [food_dir.x, food_dir.y, food_near, energy_norm,
 		kin_dir.x, kin_dir.y, density, age_norm,
-		pred_dir.x, pred_dir.y, pred_near]
+		pred_dir.x, pred_dir.y, pred_near,
+		wall_l, wall_c, wall_r]
 
 func _on_area_entered(area: Area2D) -> void:
 	# 신경망의 "먹기" 출력이 양수일 때만 실제로 먹는다(먹기 시도 매핑).
@@ -193,6 +211,7 @@ func get_thought() -> String:
 	var energy_norm: float = _last_sense[BrainBuilder.IN_ENERGY]
 	var density: float = _last_sense[BrainBuilder.IN_DENSITY]
 	var pred_near: float = _last_sense[BrainBuilder.IN_PRED_NEAR]
+	var wall_c: float = _last_sense[BrainBuilder.IN_WALL_C]
 
 	# 위험이 최우선: 포식자가 가까우면 공포/도망이 머릿속을 지배한다(가독성 — 기법1).
 	if pred_near > 0.55:
@@ -201,6 +220,9 @@ func get_thought() -> String:
 		return "😰 저쪽에 무서운 게 있어… 조심조심"
 	if food_near > 0.75:
 		return "😋 거의 다 왔다, 먹자!"
+	# 앞이 벽으로 막혔는데 당장 먹을 게 코앞은 아니면 → 돌아갈 생각.
+	if wall_c > 0.7 and food_near < 0.5:
+		return "🧱 앞이 막혔네, 돌아가자."
 	if food_near > 0.12:
 		return "🍃 %s에 먹이가 있어, 가자!" % _dir_word(food_x, food_y)
 	if energy_norm < 0.35:
