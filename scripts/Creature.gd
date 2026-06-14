@@ -15,8 +15,9 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var max_energy: float = 100.0
 ## 창시자(gen 0)의 시작 에너지. 자식은 World.offspring_start_energy를 쓴다.
 @export var start_energy: float = 70.0
-## 초당 에너지 감소(대사). 낮추면 오래 살아 인구↑.
-@export var energy_decay: float = 3.5
+## 초당 에너지 감소(대사). 낮추면 오래 살아 인구↑. 너무 높으면 '늘 굶주려' 도망/은신할
+## 여유가 없어 먹이 캠핑만 살아남는다(상충 압력 죽음). 약간의 여유를 줘 회피가 가능하게.
+@export var energy_decay: float = 2.6
 
 @export_group("이동/감각")
 @export var move_speed: float = 80.0
@@ -28,6 +29,14 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var whisker_length: float = 60.0
 ## 더듬이 좌/우 벌어짐 각도(라디안). 전방 기준 ±이 각도.
 @export var whisker_spread: float = 0.7
+
+@export_subgroup("감각 균형(상충 압력)")
+## 먹이/위험/안전 '근접도' 신호의 인지 배율. 원시 센서는 셋 다 0~1로 이미 같은 스케일이라
+## 기본 1.0은 중립. 위험을 더 '잘 듣게' 하려면 danger를 키우거나 food를 낮춘다(진화 입력 분포를
+## 바꾸니 과하게 X). 방향(dir) 벡터는 그대로 두고 근접도(near)만 조절한다.
+@export_range(0.0, 3.0) var food_salience: float = 1.0
+@export_range(0.0, 3.0) var danger_salience: float = 1.0
+@export_range(0.0, 3.0) var refuge_salience: float = 1.0
 
 @export_group("모터 안정화")
 ## 이동 출력 스무딩 속도(높을수록 즉답, 낮을수록 부드럽게). 먹이 앞 좌우 떪 방지.
@@ -313,6 +322,11 @@ func _sense() -> Array:
 				refuge_dir = to_r / rd
 			refuge_near = 1.0 - clampf(rd / sense_radius, 0.0, 1.0)
 		_sheltered = _world.is_sheltered(position)
+
+	# 감각 균형(상충 압력): 근접도 신호의 인지 배율. 방향은 그대로, 근접도만 조절·클램프.
+	food_near = clampf(food_near * food_salience, 0.0, 1.0)
+	pred_near = clampf(pred_near * danger_salience, 0.0, 1.0)
+	refuge_near = clampf(refuge_near * refuge_salience, 0.0, 1.0)
 
 	return [food_dir.x, food_dir.y, food_near, energy_norm,
 		kin_dir.x, kin_dir.y, density, age_norm,

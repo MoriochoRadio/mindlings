@@ -50,8 +50,9 @@ class_name World
 @export var repro_cost: float = 45.0
 ## 자식의 시작 에너지.
 @export var offspring_start_energy: float = 35.0
-## 창시자(gen 0) 본능 세기. 0이면 완전 무작위(순수 진화).
-@export var founder_bias: float = 0.8
+## 창시자(gen 0) 본능 세기(먹이추적·먹기 사전 편향). 너무 크면 먹이추적이 위험/안전 센서를
+## 압도해 다른 전략이 떠오를 여지가 준다. 0이면 완전 무작위(순수 진화).
+@export var founder_bias: float = 0.6
 
 @export_subgroup("돌연변이")
 ## 연결마다 가중치가 변이될 확률.
@@ -363,6 +364,18 @@ func spawn_food_in_radius(center: Vector2, radius: float) -> bool:
 			_spawn_food(p)
 			return true
 	return false
+
+## 가장 가까운 식물 군락의 위치(포식자 순찰용 — 먹이지대를 노리게 해 캠핑을 위험하게).
+## 군락이 없으면 Vector2.INF. 군락 수가 적어 직접 순회.
+func nearest_food_source(pos: Vector2) -> Vector2:
+	var best: Vector2 = Vector2.INF
+	var bd: float = INF
+	for s in _food_sources.get_children():
+		var d: float = pos.distance_squared_to(s.position)
+		if d < bd:
+			bd = d
+			best = s.position
+	return best
 
 ## 군락 용량 판정용: 중심 반경 안의 먹이 수(먹이 수가 적어 직접 순회 — 그리드 프레임 staleness 회피).
 func count_food_near(center: Vector2, radius: float) -> int:

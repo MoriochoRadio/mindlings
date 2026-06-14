@@ -16,6 +16,9 @@ class_name Predator
 @export var detect_radius: float = 170.0
 ## 회전 민첩성(높을수록 방향 전환이 빠름). 낮으면 급선회하는 먹잇감을 놓친다.
 @export var turn_rate: float = 6.0
+## 먹잇감이 안 보일 때 먹이지대(군락)로 순찰하는 강도(0=순수 배회, 1=곧장 군락으로).
+## 먹이 캠핑을 위험하게 만들어 '먹이 vs 안전' 상충 압력을 만든다(GAME_DESIGN 4장).
+@export_range(0.0, 1.0) var patrol_food_bias: float = 0.6
 
 @export_group("사냥")
 ## 이 거리 안에 들어오면 사냥 성공(px).
@@ -77,8 +80,16 @@ func _physics_process(delta: float) -> void:
 		elif dist > 0.001:
 			moving = to_prey / dist  # 먹잇감 쪽으로
 	else:
-		# 먹잇감이 안 보이면 느긋하게 배회(은은한 존재감 — 손맛 절제).
-		moving = Vector2.from_angle(_heading)
+		# 먹잇감이 안 보이면 먹이지대로 천천히 순찰 — 캠핑하는 먹잇감을 위협한다(상충 압력).
+		moving = Vector2.from_angle(_heading)  # 기본 배회
+		if _world != null and patrol_food_bias > 0.0:
+			var fz: Vector2 = _world.nearest_food_source(position)
+			if fz.x != INF:
+				var to_fz: Vector2 = fz - position
+				if to_fz.length() > 8.0:
+					moving = moving.lerp(to_fz.normalized(), patrol_food_bias)
+					if moving.length() > 0.001:
+						moving = moving.normalized()
 
 	if moving.length() > 0.01:
 		# 부드러운 선회(각도 보간). 급선회하는 먹잇감은 turn_rate가 낮을수록 놓친다.
