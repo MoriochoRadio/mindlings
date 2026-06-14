@@ -34,6 +34,14 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 ## 먹이에 거의 도착하면 속도를 줄여 정착(오버슈트 진동 방지). 0=감속 없음, 1=강하게.
 @export_range(0.0, 1.0) var arrival_damping: float = 0.82
 
+@export_group("끼임 방지")
+## 이 시간(초) 동안 거의 못 움직이면 '끼임'으로 보고 열린 쪽으로 밀어낸다.
+@export var stuck_check_interval: float = 1.0
+## 끼임 판정 거리(px). 위 시간 동안 이보다 덜 움직였으면 끼인 것.
+@export var stuck_min_move: float = 6.0
+## 끼임 탈출(넛지) 지속 시간(초). 이 동안 브레인 대신 열린 쪽으로 부드럽게 민다.
+@export var nudge_duration: float = 0.5
+
 # 타깃 히스테리시스: 현재 먹이를 고수하고, 새 먹이가 이만큼 더 가까울 때만 교체(깜빡임 방지).
 const _TARGET_SWITCH_RATIO2: float = 0.7  # 거리² 비교(≈ 16% 이상 가까워야 교체)
 
@@ -47,6 +55,10 @@ var _heading: float = 0.0
 var _want_eat: bool = true
 var _drive: Vector2 = Vector2.ZERO     # 스무딩된 이동 출력(프레임 간 급변 완화)
 var _food_target: Node2D = null        # 현재 노리는 먹이(히스테리시스용)
+var _stuck_accum: float = 0.0          # 끼임 감지 누적 시간
+var _stuck_ref: Vector2 = Vector2.ZERO # 끼임 감지 기준 위치
+var _nudge_timer: float = 0.0          # >0이면 탈출 넛지 중
+var _nudge_dir: Vector2 = Vector2.ZERO # 탈출 방향(열린 쪽)
 var _bounds: Rect2 = Rect2()
 var _world: World = null
 
@@ -69,6 +81,7 @@ func _ready() -> void:
 	energy = start_energy
 	_heading = randf() * TAU
 	rotation = _heading
+	_stuck_ref = position
 	_update_color()
 
 func get_brain() -> MindNet:
@@ -107,8 +120,19 @@ func _physics_process(delta: float) -> void:
 
 	# 모터 안정화: 신경망의 이동 출력을 저역통과로 부드럽게 → 프레임 간 부호 반전(떪) 완화.
 	# 진화한 '방향 결정'은 그대로 두고, 그 출력을 매끄럽게 따라가게만 한다.
-	var drive_raw := Vector2(out[BrainBuilder.OUT_MOVE_X], out[BrainBuilder.OUT_MOVE_Y]).limit_length(1.0)
-	_drive = _drive.lerp(drive_raw, clampf(move_smoothing_rate * delta, 0.0, 1.0))
+	# 끼임 탈출 중(_nudge_timer>0)이면 브레인 대신 '열린 쪽'으로 민다(모터 안정화).
+	var speed: float = move_speed
+	if _nudge_timer > 0.0:
+		_nudge_timer -= delta
+		_drive = _nudge_dir
+	else:
+		var drive_raw := Vector2(out[BrainBuilder.OUT_MOVE_X], out[BrainBuilder.OUT_MOVE_Y]).limit_length(1.0)
+		_drive = _drive.lerp(drive_raw, clampf(move_smoothing_rate * delta, 0.0, 1.0))
+		# 도착 감속: 먹이에 거의 닿으면 속도를 줄여 정착(오버슈트 진동 방지). 넛지 중엔 감속 안 함.
+		var food_near: float = _last_sense[BrainBuilder.IN_FOOD_NEAR]
+		if food_near > 0.8:
+			speed *= lerpf(1.0, 1.0 - arrival_damping, clampf((food_near - 0.8) / 0.2, 0.0, 1.0))
+
 	# 경계 접선 슬라이드: 가장자리에서 바깥으로 향하면 미끄러지거나 안쪽으로 보정(박힘/아사 방지).
 	if _world != null:
 		_drive = _world.slide_at_bounds(position, _drive)
@@ -116,16 +140,11 @@ func _physics_process(delta: float) -> void:
 		_heading = _drive.angle()
 		rotation = _heading
 
-	# 도착 감속: 먹이에 거의 닿으면 속도를 줄여 정착(오버슈트로 지나쳤다 되돌아오는 진동 방지).
-	var food_near: float = _last_sense[BrainBuilder.IN_FOOD_NEAR]
-	var speed: float = move_speed
-	if food_near > 0.8:
-		speed *= lerpf(1.0, 1.0 - arrival_damping, clampf((food_near - 0.8) / 0.2, 0.0, 1.0))
-
 	var desired: Vector2 = position + _drive * speed * delta
 	if _world != null:
 		desired = _world.resolve_move(position, desired)  # 벽을 통과 못 하고 따라 미끄러진다
 	position = desired.clamp(_bounds.position, _bounds.end)
+	_update_stuck(delta)  # 한 칸 오목한 곳 등에 끼면 열린 쪽으로 넛지
 	_update_color()
 
 	# 번식: 에너지가 임계치를 넘으면 자식 생성(부모 에너지 일부 소모는 World가 처리).
@@ -235,6 +254,24 @@ func _try_eat() -> void:
 		if area is Food:
 			energy = minf(energy + (area as Food).consume(), max_energy)
 	_update_color()
+
+## 끼임 감지: 벽이 있을 때, 일정 시간 거의 못 움직였고 주변이 막혀 있으면 열린 쪽으로 넛지 시작.
+## (모터 안정화 — 벽에 영구히 끼는 일을 없앤다. 열린 공간에서 쉬는 개체는 건드리지 않는다.)
+func _update_stuck(delta: float) -> void:
+	if _world == null or _nudge_timer > 0.0 or not _world.has_walls():
+		_stuck_accum = 0.0
+		_stuck_ref = position
+		return
+	_stuck_accum += delta
+	if _stuck_accum < stuck_check_interval:
+		return
+	if position.distance_to(_stuck_ref) < stuck_min_move:
+		var esc: Vector2 = _world.open_direction(position, float(_world.wall_cell) * 2.0)
+		if esc != Vector2.ZERO:
+			_nudge_dir = esc
+			_nudge_timer = nudge_duration
+	_stuck_ref = position
+	_stuck_accum = 0.0
 
 ## 에너지에 따라 몸 색을 빨강(굶주림)→초록(포만)으로(가독성 기둥 ②의 씨앗).
 func _update_color() -> void:

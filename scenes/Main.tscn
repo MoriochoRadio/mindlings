@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://b8mindlings0main"]
+[gd_scene load_steps=8 format=3 uid="uid://b8mindlings0main"]
 
 [ext_resource type="Script" path="res://scripts/Main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/World.tscn" id="2_world"]
@@ -6,11 +6,15 @@
 [ext_resource type="PackedScene" path="res://scenes/BrainPanel.tscn" id="4_brain"]
 [ext_resource type="PackedScene" path="res://scenes/Toast.tscn" id="5_toast"]
 [ext_resource type="PackedScene" path="res://scenes/Toolbar.tscn" id="6_toolbar"]
+[ext_resource type="Script" path="res://scripts/WorldCamera.gd" id="7_camera"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
 
 [node name="World" parent="." instance=ExtResource("2_world")]
+
+[node name="Camera2D" type="Camera2D" parent="."]
+script = ExtResource("7_camera")
 
 [node name="UI" type="CanvasLayer" parent="."]
 

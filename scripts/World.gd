@@ -6,34 +6,35 @@ class_name World
 ## 인구 동역학 파라미터(번식 임계치·돌연변이율·먹이량·대사)는 모두 @export로 노출.
 
 @export_group("월드")
-## 시뮬레이션 영역 크기(px). 노드 position만큼 화면 안쪽으로 들어가 있다.
-@export var world_size: Vector2 = Vector2(1200, 640)
+## 시뮬레이션 영역 크기(px). 카메라가 전체가 화면에 담기게 자동으로 줌을 맞춘다(WorldCamera).
+## 16:9라 기본 뷰포트와 비율이 맞아 여백 없이 채워진다. 키우면 개체/먹이 상한도 비례 점검할 것.
+@export var world_size: Vector2 = Vector2(1920, 1080)
 
 @export_group("개체")
 @export var creature_scene: PackedScene
 ## 시작 시 스폰할 창시자(gen 0) 수.
-@export var initial_creatures: int = 40
-## 개체 수 상한(인구 폭발 방지).
-@export var max_creatures: int = 120
+@export var initial_creatures: int = 64
+## 개체 수 상한(인구 폭발 방지). 넓어진 월드에 비례해 상향(성능 민감 — 버벅이면 낮출 것).
+@export var max_creatures: int = 200
 
 @export_group("포식자")
 @export var predator_scene: PackedScene
 ## 플레이어가 풀 수 있는 포식자 절대 상한(프레임 보호). 도구는 이 안에서 자유롭게 푼다.
-@export var max_predators: int = 30
+@export var max_predators: int = 50
 
 @export_group("먹이")
 @export var food_scene: PackedScene
 ## 시작 시 깔아둘 먹이 수.
-@export var food_start_count: int = 60
+@export var food_start_count: int = 100
 ## 먹이 스폰 주기(초). 줄이면 먹이 풍부 → 인구↑.
 @export var food_spawn_interval: float = 1.0
 ## 한 번에 스폰하는 먹이 수.
-@export var food_per_spawn: int = 6
+@export var food_per_spawn: int = 10
 ## 맵 위 먹이 수 상한(자동 스폰 타이머용).
-@export var max_food: int = 150
+@export var max_food: int = 260
 ## 플레이어 도구로 놓는 먹이의 절대 안전 상한(프레임 보호용). 자동 스폰과 별개로
 ## 손맛을 위해 넉넉히 둔다(쿨다운·자원 부담 없음 — FUN_DESIGN ①).
-@export var player_food_hard_cap: int = 450
+@export var player_food_hard_cap: int = 800
 
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
@@ -441,6 +442,28 @@ func whisker(origin: Vector2, dir: Vector2, max_dist: float) -> float:
 	if _walls.is_empty():
 		return 0.0
 	return 1.0 - clampf(_ray_wall_hit(origin, dir, max_dist) / max_dist, 0.0, 1.0)
+
+## 끼임 탈출용: pos 주변 8방향 중 '가장 열린'(맵 안쪽) 방향을 고른다.
+## 벽에 둘러싸이지 않은(열린 공간) 경우엔 ZERO — 불필요한 넛지를 막는다.
+func open_direction(pos: Vector2, probe: float) -> Vector2:
+	if _walls.is_empty():
+		return Vector2.ZERO
+	var best_dir: Vector2 = Vector2.ZERO
+	var best_clear: float = -1.0
+	var blocked: int = 0
+	for i in 8:
+		var dir: Vector2 = Vector2.from_angle(TAU * i / 8.0)
+		var clear: float = _ray_wall_hit(pos, dir, probe)
+		if clear < probe - 0.5:
+			blocked += 1
+		if not _bounds.has_point(pos + dir * probe):
+			continue  # 맵 밖으로는 밀지 않는다(경계 슬라이드가 따로 처리)
+		if clear > best_clear:
+			best_clear = clear
+			best_dir = dir
+	if blocked < 2:
+		return Vector2.ZERO  # 주변이 열려 있으면 끼인 게 아니다
+	return best_dir
 
 ## 벽 칸 위에 놓인 먹이를 모두 제거한다(벽을 칠한 직후 호출 — 도달 불가 먹이 정리).
 func _remove_food_in_walls() -> void:
