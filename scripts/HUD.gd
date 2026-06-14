@@ -27,8 +27,10 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _world == null:
 		return
-	_info_label.text = "개체 수: %d    먹이: %d    배속: %s" % [
-		_world.get_population(), _world.get_food_count(), _speed_text()]
+	var pred: int = _world.get_predator_count()
+	var pred_text: String = "    포식자: %d" % pred if pred > 0 else ""
+	_info_label.text = "개체 수: %d    먹이: %d%s    배속: %s" % [
+		_world.get_population(), _world.get_food_count(), pred_text, _speed_text()]
 	var brain: Vector2 = _world.get_avg_brain()
 	_stats_label.text = "세대: %d    평균 수명: %.1fs    평균 뇌: 노드 %.1f / 연결 %.1f" % [
 		_world.get_generation(), _world.get_avg_lifespan(), brain.x, brain.y]

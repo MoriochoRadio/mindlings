@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3 uid="uid://c7mindlingspredator"]
+
+[ext_resource type="Script" path="res://scripts/Predator.gd" id="1_predator"]
+
+[node name="Predator" type="Node2D"]
+script = ExtResource("1_predator")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.78, 0.22, 0.26, 1)
+polygon = PackedVector2Array(13, 0, -8, 7, -3, 0, -8, -7)

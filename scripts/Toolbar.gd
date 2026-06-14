@@ -10,6 +10,7 @@ const TOOLS: Array = [
 	{"id": GodTools.Tool.OBSERVE, "label": "👁 관찰", "key": KEY_1, "hint": "1"},
 	{"id": GodTools.Tool.FOOD, "label": "🍃 먹이", "key": KEY_2, "hint": "2"},
 	{"id": GodTools.Tool.ERASE, "label": "🧹 지우개", "key": KEY_3, "hint": "3"},
+	{"id": GodTools.Tool.PREDATOR, "label": "🦅 포식자", "key": KEY_4, "hint": "4"},
 ]
 
 var _buttons: Array[Button] = []

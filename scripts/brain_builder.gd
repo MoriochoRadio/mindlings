@@ -8,7 +8,7 @@ extends RefCounted
 ## 창시자에게만 약한 본능(bias_strength)을 줘 콜드스타트 멸종을 막는다.
 ## bias_strength=0 이면 창시자도 완전 무작위 — 순수 진화를 보고 싶을 때.
 
-const SENSOR_COUNT: int = 8
+const SENSOR_COUNT: int = 11
 const OUTPUT_COUNT: int = 3
 
 # 센서(입력) 인덱스 — Creature.INPUT_LABELS / _sense() 순서와 일치해야 한다.
@@ -20,6 +20,12 @@ const IN_KIN_X: int = 4
 const IN_KIN_Y: int = 5
 const IN_DENSITY: int = 6
 const IN_AGE: int = 7
+# M4-2: 포식자(위험) 센서. 가장 가까운 포식자의 방향(단위벡터)+근접도.
+# 출력은 새로 안 만든다 — 기존 이동 출력으로 '도망'이 진화한다(GAME_DESIGN 4장: 감각+행동 짝).
+# 창시자에 회피 본능은 주지 않는다 → 세대를 거쳐 회피가 스스로 떠오르는 걸 보여준다.
+const IN_PRED_X: int = 8
+const IN_PRED_Y: int = 9
+const IN_PRED_NEAR: int = 10
 
 # 출력 인덱스 — Creature.OUTPUT_LABELS 순서와 일치해야 한다.
 const OUT_MOVE_X: int = 0

@@ -7,7 +7,7 @@ class_name GodTools
 ## 캐주얼 우선(LEGIBILITY_UX 2장): 큰 클릭 영역, 쿨다운·자원 없음, 누르면 즉시 반응.
 ## 손맛(FUN_DESIGN 2장 ①): 먹이가 즉시 생기고(DropEffect) 근처 개체가 그쪽으로 모여든다.
 
-enum Tool { OBSERVE, FOOD, ERASE }
+enum Tool { OBSERVE, FOOD, ERASE, PREDATOR }
 
 @export_group("먹이 뿌리기")
 ## 한 번 찍을 때 먹이가 퍼지는 반경(px). 크게 = 관대한 조작(캐주얼).
@@ -21,8 +21,13 @@ enum Tool { OBSERVE, FOOD, ERASE }
 ## 먹이를 지우는 반경(px). 뿌리기보다 넉넉하게.
 @export var erase_radius: float = 56.0
 
+@export_group("포식자 풀기")
+## 포식자는 무겁다 — 드래그로 이만큼 움직일 때마다 한 마리씩만 푼다(절제).
+@export var predator_step: float = 46.0
+
 const _FOOD_COLOR := Color(0.55, 0.9, 0.6)
 const _ERASE_COLOR := Color(0.95, 0.55, 0.45)
+const _PRED_COLOR := Color(0.85, 0.35, 0.38)
 
 var _tool: int = Tool.OBSERVE
 var _painting: bool = false      # 좌버튼으로 현재 도구를 칠하는 중
@@ -59,8 +64,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		var m: Vector2 = _mouse()
 		if _erasing:
 			_apply(Tool.ERASE, m)
-		elif _painting and _tool != Tool.OBSERVE and m.distance_to(_last_paint) >= paint_step:
+		elif _painting and _tool != Tool.OBSERVE and m.distance_to(_last_paint) >= _step_for(_tool):
 			_apply(_tool, m)
+
+## 드래그로 칠할 때 도구별 최소 간격(px). 포식자는 더 띄엄띄엄.
+func _step_for(tool_id: int) -> float:
+	return predator_step if tool_id == Tool.PREDATOR else paint_step
 
 func _apply(tool_id: int, pos: Vector2) -> void:
 	match tool_id:
@@ -72,6 +81,8 @@ func _apply(tool_id: int, pos: Vector2) -> void:
 			_spread_food(pos)
 		Tool.ERASE:
 			_erase_food(pos)
+		Tool.PREDATOR:
+			_release_predator(pos)
 	_last_paint = pos
 
 func _spread_food(pos: Vector2) -> void:
@@ -92,6 +103,13 @@ func _erase_food(pos: Vector2) -> void:
 		return
 	if _world.remove_food_near(pos, erase_radius) > 0:
 		_spawn_effect(pos, erase_radius, _ERASE_COLOR)
+
+func _release_predator(pos: Vector2) -> void:
+	if _world == null:
+		return
+	# 한 마리씩 푼다. 등장은 작고 은은한 고리로만 알린다(손맛 절제 — 화려함 금지).
+	if _world.spawn_predator_at(pos):
+		_spawn_effect(pos, 26.0, _PRED_COLOR)
 
 func _spawn_effect(pos: Vector2, radius: float, color: Color) -> void:
 	var fx := DropEffect.new()

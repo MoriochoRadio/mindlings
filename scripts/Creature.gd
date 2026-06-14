@@ -6,7 +6,8 @@ class_name Creature
 
 ## 뇌 시각화 라벨(센서/출력 순서는 brain_builder.gd 인덱스 및 _sense()와 일치).
 const INPUT_LABELS: Array[String] = [
-	"먹이→x", "먹이→y", "먹이근접", "에너지", "동족→x", "동족→y", "밀도", "나이"]
+	"먹이→x", "먹이→y", "먹이근접", "에너지", "동족→x", "동족→y", "밀도", "나이",
+	"위험→x", "위험→y", "위험근접"]
 const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 
 @export_group("에너지")
@@ -27,6 +28,7 @@ var energy: float = 0.0
 var age: float = 0.0
 var generation: int = 0
 
+var _alive: bool = true  # 포식·아사 중복 처리 방지(한 번만 죽는다)
 var _brain: MindNet = null
 var _heading: float = 0.0
 var _want_eat: bool = true
@@ -58,10 +60,21 @@ func _ready() -> void:
 func get_brain() -> MindNet:
 	return _brain
 
+## 포식자가 호출. 아직 살아있으면 잡아챈다(true). 이미 죽었거나 잡혔으면 false.
+## true를 받은 포식자만 사냥 성공으로 처리한다(중복 포획·이중 집계 방지).
+func try_catch() -> bool:
+	if not _alive:
+		return false
+	_alive = false
+	return true
+
 func _physics_process(delta: float) -> void:
+	if not _alive:
+		return  # 잡혔지만 아직 free되기 전 프레임 — 더 움직이지 않는다.
 	age += delta
 	energy -= energy_decay * delta
 	if energy <= 0.0:
+		_alive = false
 		if _world != null:
 			_world.report_death(age)
 		queue_free()
@@ -129,12 +142,32 @@ func _sense() -> Array:
 		if kd > 0.001:
 			kin_dir = to_k / kd
 
+	# 포식자(위험) 센서: 가장 가까운 포식자의 방향+근접도. 동족보다 멀리서도 느끼게 한다
+	# (sense_radius 그대로 사용 — 포식자 탐지 반경 < 이 값이라, 잘 진화하면 먼저 알아채고 도망친다).
+	var pred_dir := Vector2.ZERO
+	var pred_near: float = 0.0
+	var nearest_pred: Node2D = null
+	var pbest: float = sense_radius * sense_radius
+	if _world != null:
+		for p in _world.get_predator_nodes():
+			var d2: float = position.distance_squared_to(p.position)
+			if d2 < pbest:
+				pbest = d2
+				nearest_pred = p
+	if nearest_pred != null:
+		var to_p: Vector2 = nearest_pred.position - position
+		var pd: float = to_p.length()
+		if pd > 0.001:
+			pred_dir = to_p / pd
+		pred_near = 1.0 - clampf(pd / sense_radius, 0.0, 1.0)
+
 	var density: float = clampf(float(kin_count) / 10.0, 0.0, 1.0)
 	var energy_norm: float = clampf(energy / max_energy, 0.0, 1.0)
 	var age_norm: float = clampf(age / age_reference, 0.0, 1.0)
 
 	return [food_dir.x, food_dir.y, food_near, energy_norm,
-		kin_dir.x, kin_dir.y, density, age_norm]
+		kin_dir.x, kin_dir.y, density, age_norm,
+		pred_dir.x, pred_dir.y, pred_near]
 
 func _on_area_entered(area: Area2D) -> void:
 	# 신경망의 "먹기" 출력이 양수일 때만 실제로 먹는다(먹기 시도 매핑).
@@ -157,7 +190,13 @@ func get_thought() -> String:
 	var food_near: float = _last_sense[BrainBuilder.IN_FOOD_NEAR]
 	var energy_norm: float = _last_sense[BrainBuilder.IN_ENERGY]
 	var density: float = _last_sense[BrainBuilder.IN_DENSITY]
+	var pred_near: float = _last_sense[BrainBuilder.IN_PRED_NEAR]
 
+	# 위험이 최우선: 포식자가 가까우면 공포/도망이 머릿속을 지배한다(가독성 — 기법1).
+	if pred_near > 0.55:
+		return "😨 포식자다, 도망쳐!"
+	if pred_near > 0.2:
+		return "😰 저쪽에 무서운 게 있어… 조심조심"
 	if food_near > 0.75:
 		return "😋 거의 다 왔다, 먹자!"
 	if food_near > 0.12:
