@@ -47,9 +47,15 @@ const OUT_EAT: int = 2
 const _BIAS_ID: int = 100
 const _OUT_BASE: int = 200
 
-## 창시자 두뇌를 만든다. bias_strength로 본능 세기 조절(0이면 완전 무작위).
-## value_clamp는 순환 진동/폭주 방어용 활성값 한계(World가 @export로 튜닝). 창시자엔 순환 연결은 없다.
-static func build(bias_strength: float = 0.8, value_clamp: float = 1.0) -> MindNet:
+## 창시자 두뇌를 만든다(GAME_DESIGN '본능 + 진화·학습'). 약한 '본능'(informed priors)을 심어
+## 똑똑한 행동이 바로 보이게 하고, 진화·돌연변이가 그걸 강화/약화/재조합해 다듬게 한다.
+## - instinct_strength: 본능 세기(0이면 순수 백지 — 비교용).
+## - instinct_variation: 개체별 본능 흩뿌림(0=동일, 클수록 겁많은/대담한 개체로 갈라져 다양성·niche↑).
+## - value_clamp: 순환 진동/폭주 방어용 활성값 한계(World @export). 창시자엔 순환 연결은 없다.
+## 본능은 하드룰이 아니라 '약한 사전 가중치' — 바탕의 무작위 직결에 더해질 뿐, 진화가 갈아엎을 수 있다.
+## (벽 회피 본능 ④는 생략: 더듬이 센서는 '진행방향 상대'값이라 월드좌표 이동출력에 고정 가중치로
+##  매핑되지 않는다. 끼임 넛지로 보완하고, 벽 회피는 진화한 은닉 구조에 맡긴다.)
+static func build(instinct_strength: float = 0.6, instinct_variation: float = 0.4, value_clamp: float = 1.0) -> MindNet:
 	var net := MindNet.new()
 	net.value_clamp = value_clamp
 	for i in SENSOR_COUNT:
@@ -58,19 +64,33 @@ static func build(bias_strength: float = 0.8, value_clamp: float = 1.0) -> MindN
 	for o in OUTPUT_COUNT:
 		net.add_node(_OUT_BASE + o, MindNet.NodeKind.OUTPUT)
 
-	# 모든 센서/편향 → 모든 출력 직결, 작은 무작위 가중치.
+	# 바탕: 모든 센서/편향 → 모든 출력 직결, 작은 무작위 가중치(진화의 재료).
 	for i in SENSOR_COUNT:
 		for o in OUTPUT_COUNT:
 			net.add_connection(i, _OUT_BASE + o, randf_range(-0.4, 0.4))
 	for o in OUTPUT_COUNT:
 		net.add_connection(_BIAS_ID, _OUT_BASE + o, randf_range(-0.2, 0.2))
 
-	# 창시자 본능(약함): 먹이 방향으로 이동하고 기본적으로 먹으려 한다.
-	# 위 직결 가중치에 더해진다. bias_strength=0이면 본능 없음(순수 무작위).
-	if bias_strength > 0.0:
-		net.add_connection(IN_FOOD_X, _OUT_BASE + OUT_MOVE_X, randf_range(1.0, 1.6) * bias_strength)
-		net.add_connection(IN_FOOD_Y, _OUT_BASE + OUT_MOVE_Y, randf_range(1.0, 1.6) * bias_strength)
-		net.add_connection(_BIAS_ID, _OUT_BASE + OUT_EAT, randf_range(0.6, 1.0) * bias_strength)
+	# 약한 본능. 먹이/위험/안전 센서는 모두 '월드좌표 방향벡터'라 이동출력에 깔끔히 매핑된다.
+	# 위험/안전 센서는 대상이 감각 범위 밖이면 0이라, ②는 자연히 '위협이 보일 때만' 작동한다(게이팅 공짜).
+	var s: float = instinct_strength
+	var v: float = instinct_variation
+	if s > 0.0:
+		# ① 먹이로 향함(가장 강함 — 굶지 않게).
+		net.add_connection(IN_FOOD_X, _OUT_BASE + OUT_MOVE_X, _instinct(1.0, 1.6, s, v))
+		net.add_connection(IN_FOOD_Y, _OUT_BASE + OUT_MOVE_Y, _instinct(1.0, 1.6, s, v))
+		net.add_connection(_BIAS_ID, _OUT_BASE + OUT_EAT, _instinct(0.6, 1.0, s, v))
+		# ② 포식자에게서 멀어짐(위험 센서 → 반대 방향, 음수). 위험이 안 보이면 입력 0 → 효과 0.
+		net.add_connection(IN_PRED_X, _OUT_BASE + OUT_MOVE_X, -_instinct(0.8, 1.4, s, v))
+		net.add_connection(IN_PRED_Y, _OUT_BASE + OUT_MOVE_Y, -_instinct(0.8, 1.4, s, v))
+		# ③ 안전지대로 향함(안전 센서 → 그쪽, 양수, 먹이보다 약하게). 약한 상시 끌림 = '집 근처에 머무는' 성향.
+		net.add_connection(IN_REFUGE_X, _OUT_BASE + OUT_MOVE_X, _instinct(0.4, 0.8, s, v))
+		net.add_connection(IN_REFUGE_Y, _OUT_BASE + OUT_MOVE_Y, _instinct(0.4, 0.8, s, v))
 
 	net.compile()
 	return net
+
+## 본능 가중치 한 개: 기본 범위(lo~hi) × 세기 × 개체별 변이(1±variation).
+## 변이 덕에 같은 창시자라도 본능 세기가 달라 겁많은/대담한 개체로 갈라진다(다양성·niche).
+static func _instinct(lo: float, hi: float, strength: float, variation: float) -> float:
+	return randf_range(lo, hi) * strength * (1.0 + randf_range(-variation, variation))

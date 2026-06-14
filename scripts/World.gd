@@ -50,9 +50,12 @@ class_name World
 @export var repro_cost: float = 45.0
 ## 자식의 시작 에너지.
 @export var offspring_start_energy: float = 35.0
-## 창시자(gen 0) 본능 세기(먹이추적·먹기 사전 편향). 너무 크면 먹이추적이 위험/안전 센서를
-## 압도해 다른 전략이 떠오를 여지가 준다. 0이면 완전 무작위(순수 진화).
-@export var founder_bias: float = 0.6
+## 창시자(gen 0) 본능 세기 — 약한 사전 가중치로 ①먹이로 향함 ②포식자 회피 ③안전지대로 향함을
+## 심는다(GAME_DESIGN '본능 + 진화·학습'). 똑똑한 행동이 바로 보이고, 진화가 강화/약화/재조합해
+## 다듬는다(자식은 부모 망을 물려받아 변이). 0이면 순수 백지(비교용 — 회피가 진화로만 떠오르는지).
+@export var instinct_strength: float = 0.6
+## 본능 세기의 개체별 흩뿌림(0=모두 동일, 클수록 겁많은/대담한 개체로 갈라져 다양성·niche↑).
+@export_range(0.0, 1.0) var instinct_variation: float = 0.4
 
 @export_subgroup("돌연변이")
 ## 연결마다 가중치가 변이될 확률.
@@ -214,8 +217,8 @@ func _spawn_creature(pos: Vector2) -> void:
 		return
 	var c: Creature = creature_scene.instantiate()
 	c.position = pos
-	# 창시자: 약한 본능을 가진 무작위 두뇌(gen 0, 순환 없음) + 무작위 유전 형질(크기·색).
-	c.setup(_bounds, self, BrainBuilder.build(founder_bias, recurrent_clamp),
+	# 창시자: 약한 본능(먹이·회피·안전)을 심은 두뇌(gen 0, 순환 없음) + 무작위 유전 형질(크기·색).
+	c.setup(_bounds, self, BrainBuilder.build(instinct_strength, instinct_variation, recurrent_clamp),
 		CreatureGenes.make_founder(founder_size_spread))
 	_creatures.add_child(c)
 
@@ -475,7 +478,7 @@ func predator_speed_factor(p: Vector2) -> float:
 	return f
 
 ## 신의 도구가 그 자리에 새 창시자(gen 0)를 만든다(M4-4 생명 생성). 전멸에서도 부활 가능.
-## 두뇌 = BrainBuilder.build(founder_bias, recurrent_clamp): 새 뇌 + 약한 사전 편향(현재 17입력, 순환 없음).
+## 두뇌 = BrainBuilder.build(instinct_strength, …): 새 뇌 + 약한 본능(먹이·회피·안전, 17입력, 순환 없음).
 ## 개체 수 상한 준수. 만들었으면 true.
 func spawn_creature_at(local_pos: Vector2) -> bool:
 	if creature_scene == null or _creatures.get_child_count() >= max_creatures:
