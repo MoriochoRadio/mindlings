@@ -8,29 +8,30 @@ class_name World
 @export_group("월드")
 ## 시뮬레이션 영역 크기(px). 카메라가 전체가 화면에 담기게 자동으로 줌을 맞춘다(WorldCamera).
 ## 16:9라 기본 뷰포트와 비율이 맞아 여백 없이 채워진다. 키우면 개체/먹이 상한도 비례 점검할 것.
-@export var world_size: Vector2 = Vector2(1920, 1080)
+## 소규모 세계(정체성 갱신: 소수 정예 + 깊은 AI). 적은 캐릭터를 가까이 보는 데 맞춘 크기.
+@export var world_size: Vector2 = Vector2(1280, 720)
 
 @export_group("개체")
 @export var creature_scene: PackedScene
-## 시작 시 스폰할 창시자(gen 0) 수.
-@export var initial_creatures: int = 56
-## 개체 수 상한(인구 폭발 방지). 공간 그리드로 센싱은 가벼워졌지만 합리적 기본값 유지(버벅이면 낮출 것).
-@export var max_creatures: int = 160
+## 시작 시 스폰할 창시자(gen 0) 수 — '소수 캐릭터' 방향(심즈·미토피아처럼 한 명 한 명을 본다).
+@export var initial_creatures: int = 8
+## 목표/상한 개체 수(소수). 번식은 유지하되 이 수에서 멈춘다 → 늘 소수의 '작은 사람들'.
+@export var max_creatures: int = 12
 
 @export_group("포식자")
 @export var predator_scene: PackedScene
-## 플레이어가 풀 수 있는 포식자 절대 상한(프레임 보호). 도구는 이 안에서 자유롭게 푼다.
-@export var max_predators: int = 50
+## 플레이어가 풀 수 있는 포식자 절대 상한(소규모 세계에 맞춰 축소).
+@export var max_predators: int = 6
 
 @export_group("먹이 / 식물 군락")
 @export var food_scene: PackedScene
 @export var food_source_scene: PackedScene
-## 맵 전체 먹이 수 안전 상한(모든 군락 재생의 전역 한도 — 성능 보호).
-@export var max_food: int = 240
-## 시작 시 심는 식물 군락 수.
-@export var initial_food_sources: int = 6
-## 플레이어가 심을 수 있는 군락 절대 상한(성능 보호).
-@export var max_food_sources: int = 40
+## 맵 전체 먹이 수 안전 상한(소규모 세계에 맞춰 축소).
+@export var max_food: int = 60
+## 시작 시 심는 식물 군락 수(소규모 세계).
+@export var initial_food_sources: int = 3
+## 플레이어가 심을 수 있는 군락 절대 상한.
+@export var max_food_sources: int = 10
 ## 시작 군락 사이 최소 간격(px). 초기 군락이 겹쳐 형성되는 것을 막는다(거부 샘플링).
 @export var initial_source_min_dist: float = 260.0
 
@@ -38,8 +39,8 @@ class_name World
 @export var refuge_scene: PackedScene
 ## 시작 시 놓는 안전지대 수(한두 개면 회피 진화의 발판이 된다). 0이면 플레이어가 직접 놓는다.
 @export var initial_refuges: int = 2
-## 플레이어가 놓을 수 있는 안전지대 절대 상한(성능 보호).
-@export var max_refuges: int = 20
+## 플레이어가 놓을 수 있는 안전지대 절대 상한(소규모 세계에 맞춰 축소).
+@export var max_refuges: int = 8
 ## 시작 안전지대 사이 최소 간격(px) — 초기 배치 겹침 방지(군락 근처 배치를 끌 때만 쓰임).
 @export var refuge_min_dist: float = 340.0
 ## 초기 안전지대를 먹이 군락 근처(이 거리, px)에 둔다 — 숨는 게 굶는 걸 의미하지 않게(피신 후 먹이 복귀).

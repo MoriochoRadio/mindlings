@@ -96,6 +96,7 @@ var _stuck_ref: Vector2 = Vector2.ZERO # 끼임 감지 기준 위치
 var _nudge_timer: float = 0.0          # >0이면 탈출 넛지 중
 var _nudge_dir: Vector2 = Vector2.ZERO # 탈출 방향(열린 쪽)
 var _color_step: int = -1              # 에너지→색 양자화 단계(바뀔 때만 다시 그림 — 성능)
+var _name_tag: NameTag = null          # 머리 위 이름표(소수를 개인으로)
 var _bounds: Rect2 = Rect2()
 var _world: World = null
 
@@ -124,6 +125,11 @@ func _ready() -> void:
 		genes = CreatureGenes.make_founder(0.25)  # 직접 인스턴스화된 경우의 안전망
 	if nickname == "":
 		nickname = _make_name()
+	# 머리 위 이름표 — 개체로 읽히게. top_level이라 개체 회전/스케일과 무관하게 수평 고정.
+	_name_tag = NameTag.new()
+	_name_tag.top_level = true
+	add_child(_name_tag)
+	_name_tag.setup(nickname, Color(0.96, 0.98, 1.0))
 	_apply_genes()
 	energy = minf(start_energy, max_energy)
 	_heading = randf() * TAU
@@ -245,6 +251,8 @@ func _physics_process(delta: float) -> void:
 	position = desired.clamp(_bounds.position, _bounds.end)
 	_update_stuck(delta)  # 한 칸 오목한 곳 등에 끼면 열린 쪽으로 넛지
 	_update_color()
+	if _name_tag != null:
+		_name_tag.global_position = global_position  # 이름표를 머리 위에 따라붙임
 
 	# 번식: 에너지가 임계치를 넘으면 자식 생성(부모 에너지 일부 소모는 World가 처리).
 	if _world != null and energy >= _world.repro_threshold:
