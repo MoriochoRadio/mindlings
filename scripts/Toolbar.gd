@@ -11,6 +11,7 @@ const TOOLS: Array = [
 	{"id": GodTools.Tool.FOOD, "label": "🍃 먹이", "key": KEY_2, "hint": "2"},
 	{"id": GodTools.Tool.ERASE, "label": "🧹 지우개", "key": KEY_3, "hint": "3"},
 	{"id": GodTools.Tool.PREDATOR, "label": "🦅 포식자", "key": KEY_4, "hint": "4"},
+	{"id": GodTools.Tool.WALL, "label": "🧱 지형", "key": KEY_5, "hint": "5"},
 ]
 
 var _buttons: Array[Button] = []
@@ -45,10 +46,10 @@ func _build_ui() -> void:
 
 	for entry in TOOLS:
 		var b := Button.new()
-		b.text = "%s  (%s)" % [entry["label"], entry["hint"]]
+		b.text = "%s (%s)" % [entry["label"], entry["hint"]]
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE  # 클릭 후 스페이스 등으로 재발동되지 않게
-		b.custom_minimum_size = Vector2(108, 40)  # 큰 클릭 영역(캐주얼)
+		b.custom_minimum_size = Vector2(92, 40)  # 큰 클릭 영역(캐주얼). 5개라 좌하단 뇌 패널과 안 겹치게 조정.
 		b.add_theme_font_size_override("font_size", 16)
 		b.pressed.connect(_select.bind(entry["id"]))
 		hbox.add_child(b)

@@ -94,8 +94,10 @@ func _physics_process(delta: float) -> void:
 	if drive.length() > 0.01:
 		_heading = drive.angle()
 		rotation = _heading
-	position += drive * move_speed * delta
-	position = position.clamp(_bounds.position, _bounds.end)
+	var desired: Vector2 = position + drive * move_speed * delta
+	if _world != null:
+		desired = _world.resolve_move(position, desired)  # 벽을 통과 못 하고 따라 미끄러진다
+	position = desired.clamp(_bounds.position, _bounds.end)
 	_update_color()
 
 	# 번식: 에너지가 임계치를 넘으면 자식 생성(부모 에너지 일부 소모는 World가 처리).

@@ -64,6 +64,12 @@ class_name World
 
 var _bounds: Rect2 = Rect2()
 
+# 지형/장벽(M4-3). 격자 셀 단위로 벽을 칠한다 — 공간을 나눠 '종 분화' 실험을 가능케 한다
+# (FUN_DESIGN ②유도·실험 / GAME_DESIGN 4장 niche 분화). 개체·포식자의 이동을 막는다.
+# 범위 주의: 이번엔 '물리적 분리'만. 개체가 벽을 감지·우회 진화하는 '벽 센서'는 후속(IDEAS_BACKLOG).
+const WALL_CELL: int = 24                 # 벽 격자 한 칸 크기(px)
+var _walls: Dictionary = {}               # Vector2i(셀좌표) -> true
+
 # 통계
 var _max_generation: int = 0
 var _death_age_sum: float = 0.0
@@ -99,9 +105,16 @@ func _ready() -> void:
 	_spawn_initial()
 	queue_redraw()
 
-## 배경과 경계선을 그린다(로컬 좌표).
+## 배경 → 벽 → 경계선 순으로 그린다(벽은 개체보다 아래에 깔린다). 로컬 좌표.
+## 벽은 바뀔 때만 다시 그린다(paint/erase 시 queue_redraw) — 매 프레임 비용 없음.
 func _draw() -> void:
 	draw_rect(_bounds, Color(0.12, 0.14, 0.18), true)
+	var wall_col := Color(0.34, 0.31, 0.38)       # 차분한 돌빛(은은하게)
+	var edge_col := Color(0.42, 0.39, 0.47, 0.6)
+	for cell in _walls:
+		var r := Rect2(cell.x * WALL_CELL, cell.y * WALL_CELL, WALL_CELL, WALL_CELL)
+		draw_rect(r, wall_col, true)
+		draw_rect(r, edge_col, false, 1.0)
 	draw_rect(_bounds, Color(0.30, 0.35, 0.42), false, 2.0)
 
 func _spawn_initial() -> void:
@@ -274,6 +287,61 @@ func report_predation(prey: Creature) -> void:
 ## 포식자가 굶어 죽었을 때 호출(현재는 통계 훅 자리 — 자기 균형의 신호).
 func report_predator_death() -> void:
 	pass
+
+# ── 지형/장벽(M4-3) ──────────────────────────────────────────────
+
+func has_walls() -> bool:
+	return not _walls.is_empty()
+
+func _cell_of(p: Vector2) -> Vector2i:
+	return Vector2i(floori(p.x / WALL_CELL), floori(p.y / WALL_CELL))
+
+func _cell_center(cell: Vector2i) -> Vector2:
+	return Vector2((cell.x + 0.5) * WALL_CELL, (cell.y + 0.5) * WALL_CELL)
+
+## 브러시 반경 안의 셀을 벽으로 칠한다. 월드 경계 안에만. 새로 칠해졌으면 true.
+func paint_wall(local_pos: Vector2, radius: float) -> bool:
+	return _stamp_wall(local_pos, radius, true)
+
+## 브러시 반경 안의 벽을 지운다. 하나라도 지워졌으면 true.
+func erase_wall(local_pos: Vector2, radius: float) -> bool:
+	return _stamp_wall(local_pos, radius, false)
+
+func _stamp_wall(local_pos: Vector2, radius: float, add: bool) -> bool:
+	var changed: bool = false
+	var c: Vector2i = _cell_of(local_pos)
+	var rc: int = int(ceil(radius / WALL_CELL))
+	var r2: float = radius * radius
+	for dx in range(-rc, rc + 1):
+		for dy in range(-rc, rc + 1):
+			var cell := Vector2i(c.x + dx, c.y + dy)
+			var center: Vector2 = _cell_center(cell)
+			if local_pos.distance_squared_to(center) > r2:
+				continue
+			if add:
+				if _bounds.has_point(center) and not _walls.has(cell):
+					_walls[cell] = true
+					changed = true
+			elif _walls.erase(cell):
+				changed = true
+	if changed:
+		queue_redraw()
+	return changed
+
+func _cell_blocked(p: Vector2) -> bool:
+	return _walls.has(_cell_of(p))
+
+## 그레이스풀 이동(개체·포식자 공용). 벽은 통과 못 하되 *벽을 따라 미끄러진다*(축 분리).
+## from이 이미 벽 안이면(벽이 위에 칠해진 경우) 자유롭게 빠져나가게 해 영구 끼임을 막는다.
+func resolve_move(from: Vector2, to: Vector2) -> Vector2:
+	if _walls.is_empty() or _cell_blocked(from):
+		return to
+	var result: Vector2 = from
+	if not _cell_blocked(Vector2(to.x, from.y)):
+		result.x = to.x
+	if not _cell_blocked(Vector2(result.x, to.y)):
+		result.y = to.y
+	return result
 
 func _random_point() -> Vector2:
 	return Vector2(
