@@ -12,6 +12,7 @@ const TOOLS: Array = [
 	{"id": GodTools.Tool.ERASE, "label": "🧹 지우개", "key": KEY_3, "hint": "3"},
 	{"id": GodTools.Tool.PREDATOR, "label": "🦅 포식자", "key": KEY_4, "hint": "4"},
 	{"id": GodTools.Tool.WALL, "label": "🧱 지형", "key": KEY_5, "hint": "5"},
+	{"id": GodTools.Tool.LIFE, "label": "✨ 생명", "key": KEY_6, "hint": "6"},
 ]
 
 var _buttons: Array[Button] = []
@@ -41,16 +42,18 @@ func _build_ui() -> void:
 	panel.add_child(margin)
 
 	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 6)
+	hbox.add_theme_constant_override("separation", 4)
 	margin.add_child(hbox)
 
 	for entry in TOOLS:
 		var b := Button.new()
-		b.text = "%s (%s)" % [entry["label"], entry["hint"]]
+		# 단축키는 툴팁으로(버튼 폭 절약 — 6개라 좌하단 뇌 패널과 안 겹치게). 키 입력은 그대로 동작.
+		b.text = entry["label"]
+		b.tooltip_text = "단축키 %s" % entry["hint"]
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE  # 클릭 후 스페이스 등으로 재발동되지 않게
-		b.custom_minimum_size = Vector2(92, 40)  # 큰 클릭 영역(캐주얼). 5개라 좌하단 뇌 패널과 안 겹치게 조정.
-		b.add_theme_font_size_override("font_size", 16)
+		b.custom_minimum_size = Vector2(78, 40)  # 큰 클릭 영역(캐주얼)
+		b.add_theme_font_size_override("font_size", 14)
 		b.pressed.connect(_select.bind(entry["id"]))
 		hbox.add_child(b)
 		_buttons.append(b)

@@ -7,7 +7,7 @@ class_name GodTools
 ## 캐주얼 우선(LEGIBILITY_UX 2장): 큰 클릭 영역, 쿨다운·자원 없음, 누르면 즉시 반응.
 ## 손맛(FUN_DESIGN 2장 ①): 먹이가 즉시 생기고(DropEffect) 근처 개체가 그쪽으로 모여든다.
 
-enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL }
+enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL, LIFE }
 
 @export_group("먹이 뿌리기")
 ## 한 번 찍을 때 먹이가 퍼지는 반경(px). 크게 = 관대한 조작(캐주얼).
@@ -29,10 +29,15 @@ enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL }
 ## 벽을 칠하는 브러시 반경(px). 작게 = 가는 선. (맵에 어울리게 얇게 — 에디터에서 미세조정)
 @export var wall_brush: float = 11.0
 
+@export_group("생명 생성")
+## 드래그로 생명을 뿌릴 때 이만큼 움직일 때마다 한 마리씩(너무 빽빽하지 않게).
+@export var life_step: float = 26.0
+
 const _FOOD_COLOR := Color(0.55, 0.9, 0.6)
 const _ERASE_COLOR := Color(0.95, 0.55, 0.45)
 const _PRED_COLOR := Color(0.85, 0.35, 0.38)
 const _WALL_COLOR := Color(0.62, 0.58, 0.7)
+const _LIFE_COLOR := Color(1.0, 0.92, 0.62)  # 따뜻한 반짝임
 
 var _tool: int = Tool.OBSERVE
 var _painting: bool = false      # 좌버튼으로 현재 도구를 칠하는 중
@@ -80,6 +85,8 @@ func _step_for(tool_id: int) -> float:
 			return predator_step
 		Tool.WALL:
 			return maxf(4.0, wall_brush * 0.8)
+		Tool.LIFE:
+			return life_step
 	return paint_step
 
 func _apply(tool_id: int, pos: Vector2) -> void:
@@ -96,6 +103,8 @@ func _apply(tool_id: int, pos: Vector2) -> void:
 			_release_predator(pos)
 		Tool.WALL:
 			_paint_wall(pos)
+		Tool.LIFE:
+			_spawn_life(pos)
 	_last_paint = pos
 
 func _spread_food(pos: Vector2) -> void:
@@ -133,6 +142,13 @@ func _paint_wall(pos: Vector2) -> void:
 	# 벽 자체가 보이는 결과물이므로 이펙트는 *획 시작에만* 살짝(절제).
 	if _world.paint_wall(pos, wall_brush) and _last_paint == Vector2.INF:
 		_spawn_effect(pos, wall_brush, _WALL_COLOR)
+
+func _spawn_life(pos: Vector2) -> void:
+	if _world == null:
+		return
+	# 새 창시자를 뿌린다. 등장은 따뜻한 반짝임으로만 은은하게(손맛 절제).
+	if _world.spawn_creature_at(pos):
+		_spawn_effect(pos, 24.0, _LIFE_COLOR)
 
 func _spawn_effect(pos: Vector2, radius: float, color: Color) -> void:
 	var fx := DropEffect.new()

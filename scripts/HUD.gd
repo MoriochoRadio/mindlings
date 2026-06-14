@@ -71,7 +71,19 @@ func _build_ui() -> void:
 		hbox.add_child(b)
 		_buttons.append(b)
 
+	# 전멸 시 자동 부활 토글(기본 OFF — 실패 없음, 플레이어가 결정).
+	var revive := CheckBox.new()
+	revive.text = "전멸 시 자동 부활"
+	revive.focus_mode = Control.FOCUS_NONE
+	revive.button_pressed = _world.auto_revive if _world != null else false
+	revive.toggled.connect(_on_revive_toggled)
+	vbox.add_child(revive)
+
 	_build_fullscreen_button()
+
+func _on_revive_toggled(on: bool) -> void:
+	if _world != null:
+		_world.auto_revive = on
 
 ## 화면 우상단의 작은 전체화면 토글 버튼. 리사이즈/전체화면에서도 우상단에 붙어 있게 앵커.
 func _build_fullscreen_button() -> void:
