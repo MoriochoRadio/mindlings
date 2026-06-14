@@ -30,13 +30,15 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 ## 더듬이 좌/우 벌어짐 각도(라디안). 전방 기준 ±이 각도.
 @export var whisker_spread: float = 0.7
 
-@export_subgroup("감각 균형(상충 압력)")
-## 먹이/위험/안전 '근접도' 신호의 인지 배율. 원시 센서는 셋 다 0~1로 이미 같은 스케일이라
-## 기본 1.0은 중립. 위험을 더 '잘 듣게' 하려면 danger를 키우거나 food를 낮춘다(진화 입력 분포를
-## 바꾸니 과하게 X). 방향(dir) 벡터는 그대로 두고 근접도(near)만 조절한다.
-@export_range(0.0, 3.0) var food_salience: float = 1.0
-@export_range(0.0, 3.0) var danger_salience: float = 1.0
-@export_range(0.0, 3.0) var refuge_salience: float = 1.0
+@export_subgroup("위협-게이팅(상충 압력)")
+## 안전지대 추구를 '상시 약한 끌림'이 아니라 '위협에 켜지는 강한 반응'으로 만든다(핵심 수정).
+## 위협도 = 가장 가까운 포식자 근접도(거리기반 0~1). 안전 끌림 = calm + 위협도×threat_gain.
+## 평소(위협 0) 안전 끌림. 0 권장 — 안 그러면 평소에도 안전지대로 끌려 굶는다.
+@export var refuge_calm_pull: float = 0.0
+## 위협이 가까울수록 안전지대 끌림에 더해지는 양. 먹이 본능(≈0.6)을 압도하도록 충분히 크게.
+@export var refuge_threat_gain: float = 3.0
+## 위협이 가까울수록 먹이 끌림을 누르는 정도(0=안 누름, 1=완전히). '공포가 허기를 누른다'.
+@export_range(0.0, 1.0) var fear_food_suppress: float = 0.7
 
 @export_group("모터 안정화")
 ## 이동 출력 스무딩 속도(높을수록 즉답, 낮을수록 부드럽게). 먹이 앞 좌우 떪 방지.
@@ -323,10 +325,17 @@ func _sense() -> Array:
 			refuge_near = 1.0 - clampf(rd / sense_radius, 0.0, 1.0)
 		_sheltered = _world.is_sheltered(position)
 
-	# 감각 균형(상충 압력): 근접도 신호의 인지 배율. 방향은 그대로, 근접도만 조절·클램프.
-	food_near = clampf(food_near * food_salience, 0.0, 1.0)
-	pred_near = clampf(pred_near * danger_salience, 0.0, 1.0)
-	refuge_near = clampf(refuge_near * refuge_salience, 0.0, 1.0)
+	# 위협-게이팅(상충 압력 핵심): 위협도 threat=pred_near(거리기반 0~1).
+	# - 안전지대 끌림: 평소 거의 0(refuge_calm_pull), 위협 시 강하게(+threat×refuge_threat_gain) → 먹이를 압도.
+	# - 먹이 끌림: 위협 시 누른다(공포가 허기를 누름) → '먹이vs안전 줄다리기'를 막는다.
+	# 방향벡터(dir)에 곱해 '이동 본능'에 직접 작용(본능 가중치는 진화 가능 상태로 보존). near도 같이 조절(생각/도착 일관).
+	var threat: float = pred_near
+	var refuge_gain: float = refuge_calm_pull + threat * refuge_threat_gain
+	var food_gain: float = maxf(0.0, 1.0 - threat * fear_food_suppress)
+	food_dir *= food_gain
+	refuge_dir *= refuge_gain
+	food_near = clampf(food_near * food_gain, 0.0, 1.0)
+	refuge_near = clampf(refuge_near * refuge_gain, 0.0, 1.0)
 
 	return [food_dir.x, food_dir.y, food_near, energy_norm,
 		kin_dir.x, kin_dir.y, density, age_norm,

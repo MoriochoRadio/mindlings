@@ -30,9 +30,15 @@ func _process(delta: float) -> void:
 		return
 	# 가벼운 값(개수)은 매 프레임. 배속 영향 없이 idle로 돈다.
 	var pred: int = _world.get_predator_count()
-	var pred_text: String = "    포식자: %d" % pred if pred > 0 else ""
+	var pop: int = _world.get_population()
+	var pred_text: String = ""
+	if pred > 0:
+		# 진단: 포식자가 풀린 동안 '은신 수(비율)'를 보여 본능 작동을 수치로 확인(눈대중 X).
+		var sheltered: int = _world.get_sheltered_count()
+		var pct: int = int(round(100.0 * float(sheltered) / float(maxi(1, pop))))
+		pred_text = "    포식자: %d    🏠 은신: %d (%d%%)" % [pred, sheltered, pct]
 	_info_label.text = "개체 수: %d    먹이: %d%s    배속: %s" % [
-		_world.get_population(), _world.get_food_count(), pred_text, _speed_text()]
+		pop, _world.get_food_count(), pred_text, _speed_text()]
 	# 평균 뇌는 O(N×연결)이라 매 프레임 돌리지 않고 ~0.4초마다 갱신(성능).
 	_stats_accum += delta
 	if _stats_accum >= 0.4:

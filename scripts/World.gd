@@ -40,8 +40,11 @@ class_name World
 @export var initial_refuges: int = 2
 ## 플레이어가 놓을 수 있는 안전지대 절대 상한(성능 보호).
 @export var max_refuges: int = 20
-## 시작 안전지대 사이 최소 간격(px) — 초기 배치 겹침 방지.
+## 시작 안전지대 사이 최소 간격(px) — 초기 배치 겹침 방지(군락 근처 배치를 끌 때만 쓰임).
 @export var refuge_min_dist: float = 340.0
+## 초기 안전지대를 먹이 군락 근처(이 거리, px)에 둔다 — 숨는 게 굶는 걸 의미하지 않게(피신 후 먹이 복귀).
+## 군락 반경(~90)보다 살짝 밖이 적당. 0 이하면 군락과 무관하게 흩뿌린다.
+@export var refuge_colony_offset: float = 150.0
 
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
@@ -180,9 +183,9 @@ func _spawn_initial() -> void:
 	# 서로 최소 간격을 둬 겹쳐 형성되는 것을 막는다(거부 샘플링).
 	for i in initial_food_sources:
 		_spawn_food_source(_scattered_point(_food_sources, initial_source_min_dist))
-	# 안전지대를 한두 개 둔다 — 회피 진화가 자리 잡을 발판(도망쳐도 갈 곳이 있게).
+	# 안전지대를 한두 개 둔다 — 기본은 먹이 군락 '근처'에(피신=굶기가 아니게).
 	for i in initial_refuges:
-		_spawn_refuge(_scattered_point(_refuges, refuge_min_dist))
+		_spawn_refuge(_refuge_start_point())
 	# 개체는 군락 근처에서 시작 — 초반 대량 아사 방지(즉시 멸종 안 나게).
 	for i in initial_creatures:
 		_spawn_creature(_creature_start_point())
@@ -202,6 +205,15 @@ func _scattered_point(container: Node2D, min_dist: float) -> Vector2:
 		if ok:
 			return p
 	return p
+
+## 초기 안전지대 위치: 무작위 군락 근처(refuge_colony_offset). 군락이 없거나 offset<=0이면 흩뿌림.
+func _refuge_start_point() -> Vector2:
+	var srcs: Array = _food_sources.get_children()
+	if refuge_colony_offset <= 0.0 or srcs.is_empty():
+		return _scattered_point(_refuges, refuge_min_dist)
+	var s: Node2D = srcs[randi() % srcs.size()]
+	var off := Vector2.from_angle(randf() * TAU) * refuge_colony_offset
+	return (s.position + off).clamp(_bounds.position, _bounds.end)
 
 ## 시작 개체 위치: 무작위 군락 근처. 군락이 없으면 완전 무작위.
 func _creature_start_point() -> Vector2:
@@ -732,6 +744,15 @@ func get_population() -> int:
 
 func get_food_count() -> int:
 	return _food.get_child_count()
+
+## 진단(본능 작동 확인): 지금 안전지대 안에 있는 개체 수. 포식자가 풀린 동안 이 값이 오르면
+## 위협-게이팅 회피가 실제로 작동 중이라는 수치 근거(눈대중 대신). 개체×은신처라 소수일 때 가볍다.
+func get_sheltered_count() -> int:
+	var n: int = 0
+	for c in _creatures.get_children():
+		if is_sheltered(c.position):
+			n += 1
+	return n
 
 func get_generation() -> int:
 	return _max_generation
