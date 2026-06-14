@@ -365,17 +365,24 @@ func spawn_food_in_radius(center: Vector2, radius: float) -> bool:
 			return true
 	return false
 
-## 가장 가까운 식물 군락의 위치(포식자 순찰용 — 먹이지대를 노리게 해 캠핑을 위험하게).
-## 군락이 없으면 Vector2.INF. 군락 수가 적어 직접 순회.
-func nearest_food_source(pos: Vector2) -> Vector2:
-	var best: Vector2 = Vector2.INF
-	var bd: float = INF
+## 포식자 매복용: pos에서 가까운 군락 위치를 고르되 exclude(지금 노리던 군락)와 다른 것을 우선한다
+## → 한 군락에서 못 잡으면 옆 군락으로 옮겨가게. 다른 게 없으면(군락 1개) 가장 가까운 것, 없으면 INF.
+## 군락 수가 적어 직접 순회.
+func pick_food_source_near(pos: Vector2, exclude: Vector2) -> Vector2:
+	var best_other: Vector2 = Vector2.INF
+	var bd_other: float = INF
+	var best_any: Vector2 = Vector2.INF
+	var bd_any: float = INF
 	for s in _food_sources.get_children():
-		var d: float = pos.distance_squared_to(s.position)
-		if d < bd:
-			bd = d
-			best = s.position
-	return best
+		var sp: Vector2 = s.position
+		var d: float = pos.distance_squared_to(sp)
+		if d < bd_any:
+			bd_any = d
+			best_any = sp
+		if sp.distance_squared_to(exclude) > 1.0 and d < bd_other:
+			bd_other = d
+			best_other = sp
+	return best_other if best_other != Vector2.INF else best_any
 
 ## 군락 용량 판정용: 중심 반경 안의 먹이 수(먹이 수가 적어 직접 순회 — 그리드 프레임 staleness 회피).
 func count_food_near(center: Vector2, radius: float) -> int:

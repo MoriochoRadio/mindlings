@@ -16,9 +16,20 @@ class_name Predator
 @export var detect_radius: float = 170.0
 ## 회전 민첩성(높을수록 방향 전환이 빠름). 낮으면 급선회하는 먹잇감을 놓친다.
 @export var turn_rate: float = 6.0
-## 먹잇감이 안 보일 때 먹이지대(군락)로 순찰하는 강도(0=순수 배회, 1=곧장 군락으로).
+## 먹잇감이 안 보일 때 먹이지대를 노릴지(0=순수 배회, >0=군락 매복 순찰 ON).
 ## 먹이 캠핑을 위험하게 만들어 '먹이 vs 안전' 상충 압력을 만든다(GAME_DESIGN 4장).
 @export_range(0.0, 1.0) var patrol_food_bias: float = 0.6
+
+@export_subgroup("순찰/매복")
+## 매복 지점이 군락 중심에서 떨어지는 거리(px). 중심에 박혀 공전하지 않게 가장자리에서 노린다.
+## detect_radius(170)가 군락(반경 ~90)을 덮으므로, 가장자리에 있어도 안쪽 먹잇감을 알아채 쫓는다.
+@export var ambush_radius: float = 70.0
+## 매복 지점 도착 판정 반경(px). 이 안에 들면 멈춰 매복한다(중심 오버슈트·공전 방지).
+@export var ambush_arrive_radius: float = 22.0
+## 같은 군락 주변에서 매복 위치를 옮기는 주기(초) — 한 자리 고정 대신 가장자리를 돈다.
+@export var ambush_hop_time: float = 2.5
+## 한 군락에서 이만큼(초) 못 잡으면 다른 군락으로 옮긴다(매복이 헛돌지 않게).
+@export var patrol_switch_time: float = 8.0
 
 @export_group("사냥")
 ## 이 거리 안에 들어오면 사냥 성공(px).
@@ -39,6 +50,12 @@ var _world: World = null
 var _bounds: Rect2 = Rect2()
 var _heading: float = 0.0
 var _cooldown: float = 0.0
+# 순찰/매복 상태(공전 버그 수정): 군락 중심을 추종하지 않고, 가장자리 매복 지점에 가서 멈춘다.
+var _move_scale: float = 1.0          # 이번 틱 속도 배율(매복 접근 시 감속)
+var _patrol_source: Vector2 = Vector2.INF  # 지금 노리는 군락 중심
+var _ambush_point: Vector2 = Vector2.INF   # 군락 가장자리의 매복 지점
+var _patrol_timer: float = 0.0        # 이 군락에서 머문 시간(초과 시 다른 군락으로)
+var _hop_timer: float = 0.0           # 매복 위치 교체 타이머
 
 @onready var _body: Polygon2D = $Body
 
@@ -66,6 +83,7 @@ func _physics_process(delta: float) -> void:
 
 	var prey: Creature = _nearest_prey()
 	var moving := Vector2.ZERO
+	_move_scale = 1.0  # 기본 전속. 매복 접근 시에만 _patrol이 낮춘다.
 	if prey != null:
 		var to_prey: Vector2 = prey.position - position
 		var dist: float = to_prey.length()
@@ -75,27 +93,19 @@ func _physics_process(delta: float) -> void:
 				and not (_world != null and _world.is_sheltered(prey.position)) and prey.try_catch():
 			energy = minf(energy + energy_per_kill, max_energy)
 			_cooldown = hunt_cooldown
+			_patrol_timer = 0.0  # 잡았으면 이 군락은 사냥터로 유지(다른 군락으로 안 옮김)
 			if _world != null:
 				_world.report_predation(prey)
 		elif dist > 0.001:
-			moving = to_prey / dist  # 먹잇감 쪽으로
+			moving = to_prey / dist  # 먹잇감 쪽으로(추적은 항상 전속)
 	else:
-		# 먹잇감이 안 보이면 먹이지대로 천천히 순찰 — 캠핑하는 먹잇감을 위협한다(상충 압력).
-		moving = Vector2.from_angle(_heading)  # 기본 배회
-		if _world != null and patrol_food_bias > 0.0:
-			var fz: Vector2 = _world.nearest_food_source(position)
-			if fz.x != INF:
-				var to_fz: Vector2 = fz - position
-				if to_fz.length() > 8.0:
-					moving = moving.lerp(to_fz.normalized(), patrol_food_bias)
-					if moving.length() > 0.001:
-						moving = moving.normalized()
+		moving = _patrol(delta)  # 먹잇감이 안 보이면 군락 가장자리에서 매복(중심 추종·공전 금지)
 
 	if moving.length() > 0.01:
 		# 부드러운 선회(각도 보간). 급선회하는 먹잇감은 turn_rate가 낮을수록 놓친다.
 		_heading = lerp_angle(_heading, moving.angle(), clampf(turn_rate * delta, 0.0, 1.0))
-		# 안전지대 안에선 느려진다(predator_slow) — 숨은 먹잇감을 끝까지 쫓기 어렵게(균형).
-		var spd: float = move_speed
+		# 안전지대 안에선 느려진다(predator_slow). _move_scale은 매복 접근 감속(오버슈트 방지).
+		var spd: float = move_speed * _move_scale
 		if _world != null:
 			spd *= _world.predator_speed_factor(position)
 		var step: Vector2 = Vector2.from_angle(_heading) * spd * delta
@@ -110,6 +120,38 @@ func _physics_process(delta: float) -> void:
 		position = desired.clamp(_bounds.position, _bounds.end)
 
 	_update_color()
+
+## 매복 순찰: 군락 '중심'을 추종하지 않는다(그게 공전 버그의 원인). 가까운 군락을 골라
+## 그 '가장자리' 매복 지점으로 가서 도착하면 멈추고(공전 방지), 주기적으로 가장자리를 옮겨
+## 다른 각도에서 노린다. 한 군락에서 오래 못 잡으면 다른 군락으로. 반환값=이동 방향(없으면 ZERO).
+func _patrol(delta: float) -> Vector2:
+	if _world == null or patrol_food_bias <= 0.0:
+		return Vector2.from_angle(_heading)  # 순찰 OFF → 순수 배회
+	_patrol_timer += delta
+	_hop_timer += delta
+	# 군락 선택: 아직 없거나, 오래 머물러도 못 잡았으면 다른 군락으로 옮긴다.
+	if _patrol_source == Vector2.INF or _patrol_timer >= patrol_switch_time:
+		_patrol_source = _world.pick_food_source_near(position, _patrol_source)
+		_patrol_timer = 0.0
+		_ambush_point = Vector2.INF
+	if _patrol_source == Vector2.INF:
+		return Vector2.from_angle(_heading)  # 군락이 없으면 배회
+	# 매복 지점: 없거나 주기가 되면 군락 가장자리의 새 지점으로(한 자리 고정 방지).
+	if _ambush_point == Vector2.INF or _hop_timer >= ambush_hop_time:
+		_ambush_point = _ambush_around(_patrol_source)
+		_hop_timer = 0.0
+	var to_t: Vector2 = _ambush_point - position
+	var dist: float = to_t.length()
+	if dist <= ambush_arrive_radius:
+		return Vector2.ZERO  # 도착 → 멈춰서 매복(중심 오버슈트·공전 없음). detect_radius로 안쪽을 살핀다.
+	# 매복 지점으로 이동하되, 가까워지면 감속해 지나치지 않게.
+	_move_scale = clampf(dist / (ambush_arrive_radius * 2.5), 0.3, 1.0)
+	return to_t / dist
+
+## 군락 중심에서 ambush_radius만큼 떨어진 무작위 가장자리 점(경계 안으로 클램프).
+func _ambush_around(center: Vector2) -> Vector2:
+	var p: Vector2 = center + Vector2.from_angle(randf() * TAU) * ambush_radius
+	return p.clamp(_bounds.position, _bounds.end)
 
 ## 탐지 반경 안에서 가장 가까운 (살아있는) 개체.
 func _nearest_prey() -> Creature:
