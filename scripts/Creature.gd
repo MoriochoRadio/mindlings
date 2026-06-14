@@ -42,12 +42,23 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 ## 끼임 탈출(넛지) 지속 시간(초). 이 동안 브레인 대신 열린 쪽으로 부드럽게 민다.
 @export var nudge_duration: float = 0.5
 
+@export_group("형질 트레이드오프(크기)")
+## 크기 유전자가 최대 에너지에 주는 영향. max_energy *= lerp(1, size, 이 값). 클수록 저장↑.
+@export var size_to_energy: float = 1.0
+## 크기가 이동 속도에 주는 영향(클수록 느려짐). speed /= lerp(1, size, 이 값).
+@export var size_to_slowness: float = 0.7
+## 크기가 대사에 주는 영향(클수록 더 먹어야). energy_decay *= lerp(1, size, 이 값).
+@export var size_to_metabolism: float = 0.5
+
 # 타깃 히스테리시스: 현재 먹이를 고수하고, 새 먹이가 이만큼 더 가까울 때만 교체(깜빡임 방지).
 const _TARGET_SWITCH_RATIO2: float = 0.7  # 거리² 비교(≈ 16% 이상 가까워야 교체)
 
 var energy: float = 0.0
 var age: float = 0.0
 var generation: int = 0
+
+var genes: CreatureGenes = null   # 보이는 유전 형질(크기·색). null이면 _ready에서 창시자 유전자 생성.
+var nickname: String = ""         # 자동 닉네임(애착·가독성). 비어 있으면 _ready에서 생성.
 
 var _alive: bool = true  # 포식·아사 중복 처리 방지(한 번만 죽는다)
 var _brain: MindNet = null
@@ -66,23 +77,61 @@ var _world: World = null
 var _last_sense: Array = []
 var _last_out: Array = []
 
-@onready var _body: Polygon2D = $Body
+## 닉네임 음절 풀(다정·귀여운 톤). 두 음절을 이어 "토토·미루" 같은 이름을 만든다.
+const _NAME_SYL: Array[String] = [
+	"토", "미", "바", "루", "코", "나", "리", "포", "두", "삐",
+	"요", "마", "치", "노", "하", "뽀", "키", "라", "모", "소", "용", "단"]
 
-## World가 스폰 시 호출. 경계·월드 참조·(선택) 미리 만든 두뇌를 넘긴다.
-func setup(bounds: Rect2, world: World, brain: MindNet = null) -> void:
+## World가 스폰 시 호출. 경계·월드 참조·(선택) 미리 만든 두뇌·유전자를 넘긴다.
+func setup(bounds: Rect2, world: World, brain: MindNet = null, p_genes: CreatureGenes = null) -> void:
 	_bounds = bounds
 	_world = world
 	if brain != null:
 		_brain = brain
+	if p_genes != null:
+		genes = p_genes
 
 func _ready() -> void:
 	if _brain == null:
 		_brain = BrainBuilder.build()
-	energy = start_energy
+	if genes == null:
+		genes = CreatureGenes.make_founder(0.25)  # 직접 인스턴스화된 경우의 안전망
+	if nickname == "":
+		nickname = _make_name()
+	_apply_genes()
+	energy = minf(start_energy, max_energy)
 	_heading = randf() * TAU
 	rotation = _heading
 	_stuck_ref = position
-	_update_color()
+	queue_redraw()
+
+## 유전 형질을 외형·능력에 반영한다(번식 시마다 인스턴스별로 한 번). 크기는 트레이드오프 동반.
+func _apply_genes() -> void:
+	scale = Vector2.ONE * genes.size            # 외형+충돌 크기(클수록 먹기 반경도 큼 — 공정)
+	max_energy *= lerpf(1.0, genes.size, size_to_energy)        # 클수록 저장↑
+	energy_decay *= lerpf(1.0, genes.size, size_to_metabolism)  # 클수록 대사↑
+	move_speed /= lerpf(1.0, genes.size, size_to_slowness)      # 클수록 느림
+
+func _make_name() -> String:
+	return _NAME_SYL[randi() % _NAME_SYL.size()] + _NAME_SYL[randi() % _NAME_SYL.size()]
+
+## '작은 사람'(그레이박스): 몸통 + 머리. +x가 바라보는 방향(rotation=heading). 색은 유전 hue × 에너지.
+func _draw() -> void:
+	var col: Color = body_color()
+	var outline := Color(0.0, 0.0, 0.0, 0.28)
+	draw_circle(Vector2(-1.0, 0.0), 6.0, col)                 # 몸통
+	draw_arc(Vector2(-1.0, 0.0), 6.0, 0.0, TAU, 18, outline, 1.0)
+	draw_circle(Vector2(5.2, 0.0), 3.6, col.lightened(0.18))  # 머리(앞쪽)
+	draw_arc(Vector2(5.2, 0.0), 3.6, 0.0, TAU, 14, outline, 1.0)
+
+## 렌더 색: 유전 hue(계보) + 에너지로 채도/명도 변조(배고프면 칙칙·어둡게 — 가독성 기법6).
+func body_color() -> Color:
+	var t: float = clampf(energy / max_energy, 0.0, 1.0)
+	return Color.from_hsv(genes.hue, lerpf(0.35, 0.85, t), lerpf(0.45, 1.0, t))
+
+## 계보 색(에너지와 무관한 순수 유전색) — 패널 형질 표시용.
+func trait_color() -> Color:
+	return Color.from_hsv(genes.hue, 0.7, 0.92)
 
 func get_brain() -> MindNet:
 	return _brain
@@ -273,10 +322,9 @@ func _update_stuck(delta: float) -> void:
 	_stuck_ref = position
 	_stuck_accum = 0.0
 
-## 에너지에 따라 몸 색을 빨강(굶주림)→초록(포만)으로(가독성 기둥 ②의 씨앗).
+## 에너지 변화 등으로 색이 바뀌므로 다시 그린다(색 계산은 _draw/body_color에서).
 func _update_color() -> void:
-	var t: float = clampf(energy / max_energy, 0.0, 1.0)
-	_body.color = Color(0.85, 0.4, 0.4).lerp(Color(0.55, 0.85, 0.6), t)
+	queue_redraw()
 
 ## "생각 한 줄"(LEGIBILITY_UX 기법1): 현재 감각/행동을 1인칭 다정한 말로 통역.
 ## 전문 용어 없이, 가장 두드러진 상황을 골라 친근한 문장으로 만든다.

@@ -5,9 +5,9 @@ class_name BrainPanel
 ## 본격 실시간 그래프 시각화는 M5에서 확장한다.
 
 const NODE_R: float = 9.0
-# 높이는 입력 노드 수에 맞춰 잡는다(M4-3b에서 벽 더듬이 3개 추가 → 입력 14 + 편향 = 15행).
-const PANEL_SIZE: Vector2 = Vector2(344, 400)
-const NODES_TOP: float = 100.0  # 노드 그래프 시작 y(위쪽은 '생각 한 줄'+상태 영역)
+# 높이는 입력 노드 수에 맞춰 잡는다(입력 14 + 편향 = 15행). 위쪽엔 이름·생각·상태·형질 영역.
+const PANEL_SIZE: Vector2 = Vector2(344, 420)
+const NODES_TOP: float = 122.0  # 노드 그래프 시작 y(위쪽은 이름+생각 한 줄+상태+형질 영역)
 
 var _creature: Creature = null
 var _node_pos: Dictionary = {}   # node id -> 패널 로컬 좌표
@@ -74,17 +74,29 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(0.05, 0.06, 0.09, 0.85), true)
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(1, 1, 1, 0.12), false, 1.0)
 
-	# 1줄: 생각(사람 말로 통역) — 패널의 주인공(LEGIBILITY_UX 기법1·3층 중 2층).
-	draw_string(font, Vector2(12, 28), _creature.get_thought(),
-		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 16, Color(0.96, 0.97, 1.0))
-	# 2줄: 쉬운 상태(숫자 대신 의미). 배부름·나이·세대.
+	# 이름(애착·가독성) + 계보 색 스와치 — 패널 제목.
+	draw_string(font, Vector2(12, 26), _creature.nickname,
+		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 60, 18, Color(0.98, 0.98, 1.0))
+	var sw := Vector2(PANEL_SIZE.x - 24, 20)
+	draw_circle(sw, 8.0, _creature.trait_color())
+	draw_arc(sw, 8.0, 0.0, TAU, 18, Color(1, 1, 1, 0.35), 1.0)
+
+	# 생각(사람 말로 통역) — LEGIBILITY 기법1·3층 중 2층.
+	draw_string(font, Vector2(12, 50), _creature.get_thought(),
+		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 15, Color(0.96, 0.97, 1.0))
+	# 쉬운 상태(숫자 대신 의미). 배부름·나이·세대.
 	var fullness: int = int(round(_creature.energy / _creature.max_energy * 100.0))
-	draw_string(font, Vector2(12, 50),
+	draw_string(font, Vector2(12, 70),
 		"배부름 %d%%   ·   %d세대째   ·   %.0f살" % [fullness, _creature.generation, _creature.age],
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 12, Color(0.72, 0.78, 0.86))
+	# 보이는 형질(크기·색) — 무리가 어떻게 갈라지는지 한눈에.
+	draw_string(font, Vector2(12, 88), "크기 %.2f   ·   색 계통" % _creature.genes.size,
+		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 12, Color(0.72, 0.78, 0.86))
+	draw_circle(Vector2(PANEL_SIZE.x - 24, 84), 6.0, _creature.trait_color())
+
 	# 구분선 + 아래는 '진짜 뇌'(고급 정보, 단계적 공개의 3층 자리).
-	draw_line(Vector2(12, 66), Vector2(PANEL_SIZE.x - 12, 66), Color(1, 1, 1, 0.10), 1.0)
-	draw_string(font, Vector2(12, 82), "이 아이의 진짜 뇌 (고급)",
+	draw_line(Vector2(12, 102), Vector2(PANEL_SIZE.x - 12, 102), Color(1, 1, 1, 0.10), 1.0)
+	draw_string(font, Vector2(12, 118), "이 아이의 진짜 뇌 (고급)",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.6, 0.68))
 
 	# 연결선: 신호(=출발 노드 활성 × 가중치) 부호로 색, 세기로 굵기·불투명도.

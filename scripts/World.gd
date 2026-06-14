@@ -58,6 +58,19 @@ class_name World
 ## 번식마다 새 은닉 노드가 추가될 확률(구조 진화).
 @export_range(0.0, 1.0) var add_node_chance: float = 0.025
 
+@export_group("형질 유전(크기·색)")
+## 크기 유전자 하한/상한. 외형·능력 배율(1.0=기본).
+@export var gene_size_min: float = 0.6
+@export var gene_size_max: float = 1.6
+## 창시자 크기 분포 폭(1.0 중심 ±).
+@export var founder_size_spread: float = 0.25
+## 번식 시 크기가 변이할 확률.
+@export_range(0.0, 1.0) var size_mutate_rate: float = 0.5
+## 크기 변이 폭(±).
+@export var size_mutate_amount: float = 0.12
+## 색(hue) 변이 폭(±, 0~1 순환). 작게 둬 부모↔자식 색 계통이 보이게.
+@export var hue_mutate_amount: float = 0.04
+
 @export_group("지형/장벽")
 ## 벽 격자 한 칸 크기(px). 작을수록 더 가늘고 촘촘한 벽이 된다. 에디터에서 미세조정 가능.
 @export var wall_cell: int = 12
@@ -154,8 +167,9 @@ func _spawn_creature(pos: Vector2) -> void:
 		return
 	var c: Creature = creature_scene.instantiate()
 	c.position = pos
-	# 창시자: 약한 본능을 가진 무작위 두뇌(gen 0).
-	c.setup(_bounds, self, BrainBuilder.build(founder_bias))
+	# 창시자: 약한 본능을 가진 무작위 두뇌(gen 0) + 무작위 유전 형질(크기·색).
+	c.setup(_bounds, self, BrainBuilder.build(founder_bias),
+		CreatureGenes.make_founder(founder_size_spread))
 	_creatures.add_child(c)
 
 ## 부모가 번식 임계치를 넘으면 호출(Creature → World). 자식을 만든다.
@@ -166,12 +180,15 @@ func reproduce(parent: Creature) -> bool:
 	var child_brain: MindNet = parent.get_brain().clone()
 	child_brain.mutate(weight_mutate_rate, weight_perturb, weight_replace_chance,
 		add_conn_chance, add_node_chance)
+	# 유전 형질(크기·색)도 부모에서 복제 후 돌연변이로 물려준다(뇌와 동일 원리).
+	var child_genes: CreatureGenes = parent.genes.inherit(
+		gene_size_min, gene_size_max, size_mutate_rate, size_mutate_amount, hue_mutate_amount)
 
 	var child: Creature = creature_scene.instantiate()
 	var offset := Vector2(randf_range(-22.0, 22.0), randf_range(-22.0, 22.0))
 	child.position = (parent.position + offset).clamp(_bounds.position, _bounds.end)
 	child.generation = parent.generation + 1
-	child.setup(_bounds, self, child_brain)
+	child.setup(_bounds, self, child_brain, child_genes)
 	_creatures.add_child(child)
 	child.energy = offspring_start_energy  # _ready 이후라 시작 에너지를 덮어쓴다
 
