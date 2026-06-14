@@ -45,6 +45,8 @@ class_name World
 ## 초기 안전지대를 먹이 군락 근처(이 거리, px)에 둔다 — 숨는 게 굶는 걸 의미하지 않게(피신 후 먹이 복귀).
 ## 군락 반경(~90)보다 살짝 밖이 적당. 0 이하면 군락과 무관하게 흩뿌린다.
 @export var refuge_colony_offset: float = 150.0
+## 진입 차단 시 포식자를 안전지대 경계에서 이만큼(px) 바깥에 막는다(경계에 딱 붙지 않게).
+@export var predator_block_margin: float = 6.0
 
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
@@ -206,14 +208,26 @@ func _scattered_point(container: Node2D, min_dist: float) -> Vector2:
 			return p
 	return p
 
-## 초기 안전지대 위치: 무작위 군락 근처(refuge_colony_offset). 군락이 없거나 offset<=0이면 흩뿌림.
+## 초기 안전지대 위치: 무작위 군락 근처(refuge_colony_offset)이되 기존 안전지대와 최소 간격을
+## 둬 겹치지 않게(겹치면 포식자 진입 차단이 합집합 경계에서 헷갈린다). 군락 없거나 offset<=0이면 흩뿌림.
 func _refuge_start_point() -> Vector2:
 	var srcs: Array = _food_sources.get_children()
 	if refuge_colony_offset <= 0.0 or srcs.is_empty():
 		return _scattered_point(_refuges, refuge_min_dist)
-	var s: Node2D = srcs[randi() % srcs.size()]
-	var off := Vector2.from_angle(randf() * TAU) * refuge_colony_offset
-	return (s.position + off).clamp(_bounds.position, _bounds.end)
+	var min_d2: float = refuge_min_dist * refuge_min_dist
+	var p: Vector2 = _bounds.get_center()
+	for _try in 16:
+		var s: Node2D = srcs[randi() % srcs.size()]
+		var off := Vector2.from_angle(randf() * TAU) * refuge_colony_offset
+		p = (s.position + off).clamp(_bounds.position, _bounds.end)
+		var ok: bool = true
+		for r in _refuges.get_children():
+			if p.distance_squared_to(r.position) < min_d2:
+				ok = false
+				break
+		if ok:
+			return p
+	return p
 
 ## 시작 개체 위치: 무작위 군락 근처. 군락이 없으면 완전 무작위.
 func _creature_start_point() -> Vector2:
@@ -479,15 +493,33 @@ func is_sheltered(p: Vector2) -> bool:
 			return true
 	return false
 
-## 포식자가 이 위치에서 받는 속도 배율(안전지대 안이면 느려진다). 밖이면 1.0.
-## 여러 은신처가 겹치면 가장 강한 감속을 적용한다.
-func predator_speed_factor(p: Vector2) -> float:
-	var f: float = 1.0
-	for r in _refuges.get_children():
-		var rf: Refuge = r as Refuge
-		if rf.contains(p):
-			f = minf(f, 1.0 - rf.predator_slow)
-	return f
+## 포식자 이동을 안전지대 경계에서 막는다(경계가 벽처럼 작동 — 진입 차단).
+## 목적지가 어떤 안전지대 안이면 경계 위(같은 각도)로 되민다 → 경계를 따라 미끄러지며 배회/대기.
+## 이미 안에서 시작했으면(겹쳐 생성 등) 빠져나가게 통과시킨다(영구 끼임 방지). predator_block_margin만큼 바깥에 둔다.
+func resolve_predator_refuge(from: Vector2, to: Vector2) -> Vector2:
+	var result: Vector2 = to
+	# 다중 패스: 겹친 안전지대(합집합) 밖으로 확실히 밀어낸다(한 패스만 하면 A에서 밀린 게 B 안에 남을 수 있음).
+	for _pass in 4:
+		var pushed: bool = false
+		for r in _refuges.get_children():
+			var rf: Refuge = r as Refuge
+			if not rf.blocks_predators:
+				continue
+			var rad: float = rf.radius + predator_block_margin
+			var c: Vector2 = rf.position
+			if from.distance_to(c) < rad:
+				continue  # 이미 안에서 시작 → 막지 않고 빠져나가게(영구 끼임 방지)
+			if result.distance_to(c) < rad:
+				var dir: Vector2 = result - c
+				if dir.length() < 0.001:
+					dir = from - c
+				if dir.length() < 0.001:
+					dir = Vector2.RIGHT
+				result = c + dir.normalized() * rad  # 경계 위로 되밀어 미끄러지게
+				pushed = true
+		if not pushed:
+			break
+	return result
 
 ## 신의 도구가 그 자리에 새 창시자(gen 0)를 만든다(M4-4 생명 생성). 전멸에서도 부활 가능.
 ## 두뇌 = BrainBuilder.build(instinct_strength, …): 새 뇌 + 약한 본능(먹이·회피·안전, 17입력, 순환 없음).
