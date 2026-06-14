@@ -118,6 +118,11 @@ func _physics_process(delta: float) -> void:
 			desired = _world.resolve_predator_refuge(position, desired)  # 안전지대 경계는 못 넘는다(진입 차단)
 		position = desired.clamp(_bounds.position, _bounds.end)
 
+	# 사후 보정(최종 안전장치): 어떤 경로(터널링·런타임 설치·밀림)로든 안전지대 안에 있으면
+	# 매 틱 즉시 경계 밖으로. 이동 여부와 무관하게 항상 실행 → 절대 안에 머물 수 없다.
+	if _world != null:
+		position = _world.push_out_of_refuges(position)
+
 	_update_color()
 
 ## 매복 순찰: 군락 '중심'을 추종하지 않는다(그게 공전 버그의 원인). 가까운 군락을 골라

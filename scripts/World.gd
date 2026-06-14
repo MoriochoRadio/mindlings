@@ -597,6 +597,29 @@ func resolve_predator_refuge(from: Vector2, to: Vector2) -> Vector2:
 			break
 	return result
 
+## 사후 보정(최종 안전장치): 포식자가 '이미' 어떤 안전지대 안에 있으면 가장 가까운 경계 '밖'으로
+## 강제로 밀어낸다. 매 틱 '이동 후' 호출 → 터널링(5x 큰 이동)·런타임 설치·밀림 등 어떤 경로로
+## 들어왔든 안에 머물 수 없다. resolve와 달리 from을 안 따져 무조건 밀어낸다(겹침은 다중 패스).
+func push_out_of_refuges(pos: Vector2) -> Vector2:
+	var result: Vector2 = pos
+	for _pass in 4:
+		var pushed: bool = false
+		for r in _refuges.get_children():
+			var rf: Refuge = r as Refuge
+			if not rf.blocks_predators:
+				continue
+			var rad: float = rf.radius + predator_block_margin
+			var c: Vector2 = rf.position
+			if result.distance_to(c) < rad:
+				var dir: Vector2 = result - c
+				if dir.length() < 0.001:
+					dir = Vector2.RIGHT
+				result = c + dir.normalized() * rad
+				pushed = true
+		if not pushed:
+			break
+	return result
+
 ## 신의 도구가 그 자리에 새 창시자(gen 0)를 만든다(M4-4 생명 생성). 전멸에서도 부활 가능.
 ## 두뇌 = BrainBuilder.build(instinct_strength, …): 새 뇌 + 약한 본능(먹이·회피·안전, 17입력, 순환 없음).
 ## 개체 수 상한 준수. 만들었으면 true.
