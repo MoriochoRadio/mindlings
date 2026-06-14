@@ -1,43 +1,80 @@
 extends Control
 class_name Toast
 ## 이정표 토스트(LEGIBILITY_UX 기법4): 의미 있는 순간에만 가끔 뜨는 다정한 팝업.
-## 숫자 대신 의미·감정을 전한다. 상단 중앙에서 살짝 떴다가 부드럽게 사라진다.
-## World가 call_group("toast", "show_toast", text)로 호출한다.
+## 숫자 대신 의미·감정을 전한다. World가 call_group("toast", "show_toast", text)로 호출.
 ##
-## 페이드는 Engine.time_scale의 영향을 받지 않도록 실시간(wall-clock)으로 구동한다.
-## (배속 5x로 진화를 빨리 돌릴 때도, 일시정지일 때도 토스트는 읽을 수 있어야 한다.)
+## 배치: 하단 중앙, 툴바 '위'. HUD(좌상)·툴바(하단 중앙, 더 아래)·뇌 패널(하단 좌)과 안 겹친다.
+## 한 번에 1개만 표시(큐잉) + 같은 메시지 연속은 쿨다운으로 억제 → 쌓여서 가려지지 않는다.
+## 페이드는 Engine.time_scale와 무관하게 실시간(wall-clock)으로 — 배속·일시정지에서도 읽힌다.
 
 ## 한 토스트가 완전히 보이는 유지 시간(초, 실시간).
 @export var hold_time: float = 4.5
+## 같은 메시지가 이 시간(초) 안에 다시 오면 중복으로 보고 억제(쌓임 방지).
+@export var dedupe_cooldown: float = 3.0
+## 툴바 위로 띄울 높이(화면 하단에서 px). 툴바(약 -64)보다 위에 둔다.
+@export var bottom_offset: float = -78.0
+## 대기 큐 최대 길이(폭주 방지). 넘으면 새 토스트는 버린다.
+@export var max_queue: int = 4
 
 const _FADE_IN: float = 0.35
 const _FADE_OUT: float = 0.7
 
-var _box: VBoxContainer
-var _active: Array = []  # [{panel, t0_msec}]
+var _queue: Array[String] = []
+var _panel: PanelContainer = null
+var _t0: int = 0
+var _last_text: String = ""
+var _last_msec: int = 0
 
 func _ready() -> void:
 	add_to_group("toast")
-	# 전체 화면을 덮되 입력은 통과시킨다(관찰을 방해하지 않게).
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	_box = VBoxContainer.new()
-	_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_box.add_theme_constant_override("separation", 6)
-	# 화면 상단 가로 전체에 깔고, 각 토스트는 가로 중앙으로 줄여 배치한다.
-	_box.anchor_left = 0.0
-	_box.anchor_right = 1.0
-	_box.anchor_top = 0.0
-	_box.anchor_bottom = 0.0
-	_box.grow_vertical = Control.GROW_DIRECTION_END
-	_box.offset_top = 18.0
-	add_child(_box)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE  # 관찰 방해 없게 입력 통과
 
 func show_toast(text: String) -> void:
+	var now: int = Time.get_ticks_msec()
+	# 중복 억제: 직전에 띄운 같은 메시지가 쿨다운 안이면 무시.
+	if text == _last_text and (now - _last_msec) < int(dedupe_cooldown * 1000.0):
+		return
+	if text in _queue:
+		return  # 이미 대기 중인 같은 메시지면 무시
+	if _queue.size() >= max_queue:
+		return
+	_queue.append(text)
+
+func _process(_delta: float) -> void:
+	var now: int = Time.get_ticks_msec()
+	# 현재 토스트가 없고 대기가 있으면 다음 하나를 띄운다(한 번에 1개).
+	if _panel == null and not _queue.is_empty():
+		_spawn(_queue.pop_front(), now)
+	if _panel == null:
+		return
+	var total: float = _FADE_IN + hold_time + _FADE_OUT
+	var e: float = (now - _t0) / 1000.0
+	if e >= total:
+		_panel.queue_free()
+		_panel = null
+		return
+	var a: float = 1.0
+	if e < _FADE_IN:
+		a = e / _FADE_IN
+	elif e > _FADE_IN + hold_time:
+		a = 1.0 - (e - _FADE_IN - hold_time) / _FADE_OUT
+	_panel.modulate.a = clampf(a, 0.0, 1.0)
+
+func _spawn(text: String, now: int) -> void:
+	_last_text = text
+	_last_msec = now
+
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER  # 가로 중앙으로 축소 배치
+	# 하단 중앙(툴바 위) 앵커. 콘텐츠 크기에 맞춰 가로 가운데 정렬, 위로 자란다.
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 1.0
+	panel.anchor_bottom = 1.0
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	panel.offset_bottom = bottom_offset
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.1, 0.13, 0.2, 0.92)
@@ -58,28 +95,6 @@ func show_toast(text: String) -> void:
 	panel.add_child(label)
 
 	panel.modulate.a = 0.0
-	_box.add_child(panel)
-	_active.append({"panel": panel, "t0": Time.get_ticks_msec()})
-
-func _process(_delta: float) -> void:
-	if _active.is_empty():
-		return
-	var now: int = Time.get_ticks_msec()
-	var total: float = _FADE_IN + hold_time + _FADE_OUT
-	var still: Array = []
-	for item in _active:
-		var panel: PanelContainer = item["panel"]
-		if not is_instance_valid(panel):
-			continue
-		var e: float = (now - item["t0"]) / 1000.0
-		if e >= total:
-			panel.queue_free()
-			continue
-		var a: float = 1.0
-		if e < _FADE_IN:
-			a = e / _FADE_IN
-		elif e > _FADE_IN + hold_time:
-			a = 1.0 - (e - _FADE_IN - hold_time) / _FADE_OUT
-		panel.modulate.a = clampf(a, 0.0, 1.0)
-		still.append(item)
-	_active = still
+	add_child(panel)
+	_panel = panel
+	_t0 = now
