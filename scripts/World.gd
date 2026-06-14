@@ -24,8 +24,11 @@ class_name World
 @export var food_spawn_interval: float = 1.0
 ## 한 번에 스폰하는 먹이 수.
 @export var food_per_spawn: int = 6
-## 맵 위 먹이 수 상한.
+## 맵 위 먹이 수 상한(자동 스폰 타이머용).
 @export var max_food: int = 150
+## 플레이어 도구로 놓는 먹이의 절대 안전 상한(프레임 보호용). 자동 스폰과 별개로
+## 손맛을 위해 넉넉히 둔다(쿨다운·자원 부담 없음 — FUN_DESIGN ①).
+@export var player_food_hard_cap: int = 450
 
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
@@ -194,6 +197,24 @@ func _spawn_food(pos: Vector2) -> void:
 	f.position = pos
 	_food.add_child(f)
 
+## 신의 도구가 임의 위치(월드 로컬)에 먹이를 놓는다(M4 먹이 권능). 경계 안으로 보정.
+## 안전 상한에 걸리면 false. 근처 개체는 센서로 즉시 감지해 모여든다(손맛).
+func spawn_food_at(local_pos: Vector2) -> bool:
+	if food_scene == null or _food.get_child_count() >= player_food_hard_cap:
+		return false
+	_spawn_food(local_pos.clamp(_bounds.position, _bounds.end))
+	return true
+
+## 보조 모드: 주어진 위치 반경 안의 먹이를 지운다. 지운 개수를 반환.
+func remove_food_near(local_pos: Vector2, radius: float) -> int:
+	var r2: float = radius * radius
+	var removed: int = 0
+	for f in _food.get_children():
+		if local_pos.distance_squared_to(f.position) <= r2:
+			f.queue_free()
+			removed += 1
+	return removed
+
 func _random_point() -> Vector2:
 	return Vector2(
 		randf_range(_bounds.position.x, _bounds.end.x),
@@ -234,16 +255,14 @@ func get_food_nodes() -> Array:
 func get_creature_nodes() -> Array:
 	return _creatures.get_children()
 
-## 좌클릭으로 가장 가까운 개체를 선택해 뇌 시각화 패널에 전달한다(빈 곳 클릭 시 해제).
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed \
-			and event.button_index == MOUSE_BUTTON_LEFT:
-		var m: Vector2 = get_local_mouse_position()
-		var nearest: Creature = null
-		var best: float = 28.0 * 28.0
-		for c in get_creature_nodes():
-			var d2: float = m.distance_squared_to(c.position)
-			if d2 < best:
-				best = d2
-				nearest = c
-		get_tree().call_group("brain_panel", "select_creature", nearest)
+## 관찰 도구가 호출(GodTools). 주어진 위치(월드 로컬)에서 가장 가까운 개체를 선택해
+## 뇌 시각화 패널에 전달한다(근처에 없으면 선택 해제). 입력 라우팅은 GodTools가 맡는다.
+func select_creature_at(local_pos: Vector2) -> void:
+	var nearest: Creature = null
+	var best: float = 28.0 * 28.0
+	for c in get_creature_nodes():
+		var d2: float = local_pos.distance_squared_to(c.position)
+		if d2 < best:
+			best = d2
+			nearest = c
+	get_tree().call_group("brain_panel", "select_creature", nearest)

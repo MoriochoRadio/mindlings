@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3 uid="uid://c3mindlingsworld"]
+[gd_scene load_steps=5 format=3 uid="uid://c3mindlingsworld"]
 
 [ext_resource type="Script" path="res://scripts/World.gd" id="1_world"]
 [ext_resource type="PackedScene" path="res://scenes/Creature.tscn" id="2_creature"]
 [ext_resource type="PackedScene" path="res://scenes/Food.tscn" id="3_food"]
+[ext_resource type="Script" path="res://scripts/GodTools.gd" id="4_godtools"]
 
 [node name="World" type="Node2D"]
 position = Vector2(40, 40)
@@ -16,3 +17,6 @@ food_scene = ExtResource("3_food")
 
 [node name="FoodTimer" type="Timer" parent="."]
 autostart = true
+
+[node name="GodTools" type="Node2D" parent="."]
+script = ExtResource("4_godtools")
