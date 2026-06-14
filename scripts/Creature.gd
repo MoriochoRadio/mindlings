@@ -97,6 +97,14 @@ var _nudge_timer: float = 0.0          # >0이면 탈출 넛지 중
 var _nudge_dir: Vector2 = Vector2.ZERO # 탈출 방향(열린 쪽)
 var _color_step: int = -1              # 에너지→색 양자화 단계(바뀔 때만 다시 그림 — 성능)
 var _name_tag: NameTag = null          # 머리 위 이름표(소수를 개인으로)
+# 생애 내 학습(AI 정교화 2단계)
+var _prev_pred_near: float = 0.0       # 위협도 변화(탈출=보상, 접근=벌) 계산용
+var _ate_energy: float = 0.0           # 이번 틱에 먹어 얻은 에너지(보상 재료)
+var _food_eaten: int = 0               # 생애 누적 먹이 수(진단: 시간당 먹이)
+var _forage_skill: float = 0.0         # 먹이찾기 숙련 게이지(0~1, 가독성)
+var _avoid_skill: float = 0.0          # 위험회피 숙련 게이지(0~1, 가독성)
+var _learn_flash: float = 0.0          # >0이면 '아, 이렇게!' 학습 순간(생각용)
+var _skill_toasted: bool = false       # 숙련 이정표 토스트 1회
 var _bounds: Rect2 = Rect2()
 var _world: World = null
 
@@ -222,6 +230,7 @@ func _physics_process(delta: float) -> void:
 
 	_want_eat = out[BrainBuilder.OUT_EAT] > 0.0
 	_try_eat()  # 겹친 먹이를 매 틱 확인해 먹는다(엣지 트리거 함정 방지 — 먹이 앞 떪의 주원인)
+	_learn(delta)  # 생애 내 학습: 방금 결과(먹이/위협)로 최근 활성 연결을 강화/약화
 
 	# 모터 안정화: 신경망의 이동 출력을 저역통과로 부드럽게 → 프레임 간 부호 반전(떪) 완화.
 	# 진화한 '방향 결정'은 그대로 두고, 그 출력을 매끄럽게 따라가게만 한다.
@@ -402,12 +411,64 @@ func _sense() -> Array:
 ## 엣지 트리거(area_entered)와 달리, 도착했는데 그 한 프레임에 먹기 출력이 음수여도
 ## 다음 틱에 안정적으로 먹어 '먹이 앞에 앉아 떠는' 현상을 없앤다.
 func _try_eat() -> void:
+	_ate_energy = 0.0
 	if not _want_eat:
 		return
 	for area in get_overlapping_areas():
 		if area is Food:
+			var before: float = energy
 			energy = minf(energy + (area as Food).consume(), max_energy)
+			var gained: float = energy - before
+			if gained > 0.0:
+				_ate_energy += gained
+				_food_eaten += 1
+				if _world != null:
+					_world.report_eat()
 	_update_color()
+
+## 생애 내 학습(보상조절 가소성): 방금 틱의 결과로 '최근 함께 활성화된 연결'을 강화/약화한다.
+## 보상 = 먹이(+) − 위협상승(접근=벌, 하강=탈출 보상) − 굶주림. 학습률 = 기본 × 유전 가소성.
+## 어릴 땐 서툴고, 살면서 먹이찾기·위험회피가 점점 능숙해진다. learning_enabled=false면 평생 고정(비교용).
+func _learn(delta: float) -> void:
+	if _world == null or not _world.learning_enabled:
+		return
+	_brain.accumulate_eligibility(_world.eligibility_decay)
+	var pn: float = _last_sense[BrainBuilder.IN_PRED_NEAR] if _last_sense.size() > BrainBuilder.IN_PRED_NEAR else 0.0
+	var threat_delta: float = pn - _prev_pred_near
+	_prev_pred_near = pn
+	var reward: float = _ate_energy * _world.eat_reward - threat_delta * _world.danger_reward
+	var frac: float = energy / max_energy
+	if frac < 0.2:
+		reward -= (0.2 - frac) / 0.2 * _world.starve_penalty
+	var dw: float = _brain.apply_reward(reward, _world.learning_rate * genes.plasticity, _world.learn_weight_clamp)
+
+	# 숙련 게이지(가독성): 먹이 성공으로 forage↑, 위협 탈출(위협 하강)로 avoid↑. 아주 천천히 감쇠(대개 상승).
+	if _ate_energy > 0.0:
+		_forage_skill = minf(1.0, _forage_skill + 0.05)
+	if threat_delta < -0.02:
+		_avoid_skill = minf(1.0, _avoid_skill - threat_delta * 1.5)
+	_forage_skill = maxf(0.0, _forage_skill - delta * 0.004)
+	_avoid_skill = maxf(0.0, _avoid_skill - delta * 0.004)
+
+	# 학습 순간: 큰 양의 학습이 일어나면 잠깐 '아, 이렇게!'(LEGIBILITY — 학습이 눈에 보이게).
+	if reward > 0.1 and dw > 0.01:
+		_learn_flash = 1.2
+	_learn_flash = maxf(0.0, _learn_flash - delta)
+
+	# 이정표 토스트(가끔): 충분히 자란 개체가 숙련을 처음 쌓으면 1회.
+	if not _skill_toasted and age > 10.0 and (_forage_skill > 0.6 or _avoid_skill > 0.6):
+		_skill_toasted = true
+		get_tree().call_group("toast", "show_toast", "✨ %s가 경험으로 더 능숙해졌어요!" % nickname)
+
+## 진단(객관): 생애 시간당 먹이 획득. 학습으로 능숙해지면 나이 들며 오른다.
+func food_per_sec() -> float:
+	return float(_food_eaten) / age if age > 0.5 else 0.0
+
+func get_forage_skill() -> float:
+	return _forage_skill
+
+func get_avoid_skill() -> float:
+	return _avoid_skill
 
 ## 끼임 감지: 벽이 있을 때, 일정 시간 거의 못 움직였고 주변이 막혀 있으면 열린 쪽으로 넛지 시작.
 ## (모터 안정화 — 벽에 영구히 끼는 일을 없앤다. 열린 공간에서 쉬는 개체는 건드리지 않는다.)
@@ -466,6 +527,9 @@ func get_thought() -> String:
 	# 기억(순환 연결)이 진화한 개체만: 위험이 지나갔어도 잔상이 남아 잠시 경계한다(기억이 보이게).
 	if _brain != null and _brain.has_recurrent() and _danger_memory > 0.35:
 		return "🧠 아까 위험했어, 조심…"
+	# 학습 순간: 방금 경험으로 더 능숙해졌다는 깨달음(생애 학습이 눈에 보이게).
+	if _learn_flash > 0.0:
+		return "🧠 아, 이렇게 하니 잘 되네!"
 	if food_near > 0.75:
 		return "😋 거의 다 왔다, 먹자!"
 	# 앞이 벽으로 막혔는데 당장 먹을 게 코앞은 아니면 → 돌아갈 생각.

@@ -27,12 +27,15 @@ class NetNode:
 		kind = p_kind
 
 ## 연결 유전자. recurrent=true면 출발 노드의 *이전 틱* 값을 읽는다(1틱 지연 → 사이클·기억).
+## elig=자격흔적(최근 pre×post 활동, 감쇠) — 보상 시 신용 배분용. last_dw=최근 학습 변화(가독성 하이라이트).
 class NetConn:
 	var from_id: int
 	var to_id: int
 	var weight: float
 	var enabled: bool
 	var recurrent: bool
+	var elig: float = 0.0     # 자격흔적(생애 학습) — 출생/복제 시 0에서 시작
+	var last_dw: float = 0.0  # 최근 학습 가중치 변화(뇌 패널 '강해지는 연결' 표시용)
 	func _init(f: int, t: int, w: float, e: bool = true, r: bool = false) -> void:
 		from_id = f
 		to_id = t
@@ -136,6 +139,33 @@ func get_outputs() -> Array:
 	for id in output_ids:
 		out.append(nodes[id].value)
 	return out
+
+# ── 생애 내 학습(보상조절 가소성, AI 정교화 2단계) ──────────────────────────
+## propagate 직후 호출: 각 연결의 자격흔적을 갱신한다(elig = elig×decay + pre×post).
+## '직전에 함께 활성화된' 연결에 신용을 쌓아, 잠시 뒤 보상이 오면 그 연결을 강화/약화한다(3-factor Hebbian).
+## last_dw는 천천히 식혀 '지금 강해지는 연결' 하이라이트가 부드럽게 사라지게 한다.
+func accumulate_eligibility(decay: float) -> void:
+	for c in connections:
+		if not c.enabled:
+			continue
+		var pre: float = nodes[c.from_id].prev if c.recurrent else nodes[c.from_id].value
+		c.elig = c.elig * decay + pre * nodes[c.to_id].value
+		c.last_dw *= 0.8
+
+## 보상 r로 학습: weight += lr×r×elig, 가중치 클램프(폭주 방지). 변화 총량(|dw| 합)을 반환(가독성).
+## r=0이면 변화 없음(희소 보상). lr은 호출부가 (기본 학습률 × 유전 가소성)로 넣는다.
+func apply_reward(reward: float, lr: float, wclamp: float) -> float:
+	if reward == 0.0 or lr == 0.0:
+		return 0.0
+	var total: float = 0.0
+	for c in connections:
+		if not c.enabled:
+			continue
+		var dw: float = lr * reward * c.elig
+		c.weight = clampf(c.weight + dw, -wclamp, wclamp)
+		c.last_dw += dw
+		total += absf(dw)
+	return total
 
 ## 깊은 복사(M3 유전). 구조+가중치+순환 플래그를 복제한다. 노드 상태(value/prev)는
 ## 새 NetNode라 0으로 시작 = 출생 시 기억 리셋(부모 경험은 안 물려받고, 기억하는 '능력'만 물려받는다).

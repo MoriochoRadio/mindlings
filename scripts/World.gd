@@ -108,6 +108,26 @@ class_name World
 ## 색(hue) 변이 폭(±, 0~1 순환). 작게 둬 부모↔자식 색 계통이 보이게.
 @export var hue_mutate_amount: float = 0.04
 
+@export_group("생애 내 학습(가소성)")
+## 생애 학습 on/off(off면 가중치는 평생 고정 — 학습 효과 비교용).
+@export var learning_enabled: bool = true
+## 기본 학습률(작게 — 안정). 개체별 실제 학습률 = 이 값 × 유전 가소성.
+@export var learning_rate: float = 0.02
+## 자격흔적 감쇠(0~1). 클수록 더 먼 과거 행동까지 신용. 보상-행동 시간차를 메운다.
+@export_range(0.0, 0.99) var eligibility_decay: float = 0.9
+## 학습 후 가중치 한계(폭주·행동붕괴 방지).
+@export var learn_weight_clamp: float = 8.0
+## 보상: 먹이 1에너지당 +(먹이찾기 강화).
+@export var eat_reward: float = 0.04
+## 보상: 위협도 변화당(상승=벌, 하강=탈출 보상). 위험회피를 강화한다.
+@export var danger_reward: float = 0.6
+## 보상: 굶주릴 때(에너지<20%) -(지금 행동을 약화해 다른 시도를 유도).
+@export var starve_penalty: float = 0.25
+## 창시자 가소성 분포 폭(겁많은/대담한처럼 '빨리 배우는/천천히 배우는' 개체로 갈리게).
+@export var plasticity_spread: float = 0.25
+## 번식 시 가소성 변이 폭(진화가 학습 강도를 조절).
+@export var plasticity_mutate_amount: float = 0.08
+
 @export_group("지형/장벽")
 ## 벽 격자 한 칸 크기(px). 작을수록 더 가늘고 촘촘한 벽이 된다. 에디터에서 미세조정 가능.
 @export var wall_cell: int = 12
@@ -267,7 +287,7 @@ func _spawn_creature(pos: Vector2) -> void:
 	c.position = pos
 	# 창시자: 약한 본능(먹이·회피·안전)을 심은 두뇌(gen 0, 순환 없음) + 무작위 유전 형질(크기·색).
 	c.setup(_bounds, self, BrainBuilder.build(instinct_strength, instinct_variation, recurrent_clamp),
-		CreatureGenes.make_founder(founder_size_spread))
+		CreatureGenes.make_founder(founder_size_spread, plasticity_spread))
 	_creatures.add_child(c)
 
 ## 부모가 번식 임계치를 넘으면 호출(Creature → World). 자식을 만든다.
@@ -281,7 +301,8 @@ func reproduce(parent: Creature) -> bool:
 		add_conn_chance, add_node_chance, add_recurrent_chance)
 	# 유전 형질(크기·색)도 부모에서 복제 후 돌연변이로 물려준다(뇌와 동일 원리).
 	var child_genes: CreatureGenes = parent.genes.inherit(
-		gene_size_min, gene_size_max, size_mutate_rate, size_mutate_amount, hue_mutate_amount)
+		gene_size_min, gene_size_max, size_mutate_rate, size_mutate_amount, hue_mutate_amount,
+		plasticity_mutate_amount)
 
 	var child: Creature = creature_scene.instantiate()
 	var offset := Vector2(randf_range(-22.0, 22.0), randf_range(-22.0, 22.0))
@@ -876,6 +897,13 @@ func get_population() -> int:
 
 func get_food_count() -> int:
 	return _food.get_child_count()
+
+# 전역 먹이 섭취 카운터(진단·학습효과 측정). 개체가 먹을 때마다 증가(죽어도 누적 유지).
+var _total_eaten: int = 0
+func report_eat() -> void:
+	_total_eaten += 1
+func get_total_eaten() -> int:
+	return _total_eaten
 
 ## 진단(본능 작동 확인): 지금 안전지대 안에 있는 개체 수. 포식자가 풀린 동안 이 값이 오르면
 ## 위협-게이팅 회피가 실제로 작동 중이라는 수치 근거(눈대중 대신). 개체×은신처라 소수일 때 가볍다.
