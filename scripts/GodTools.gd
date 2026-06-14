@@ -26,8 +26,8 @@ enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL }
 @export var predator_step: float = 46.0
 
 @export_group("지형/장벽")
-## 벽을 칠하는 브러시 반경(px). 크게 = 관대한 조작(캐주얼).
-@export var wall_brush: float = 30.0
+## 벽을 칠하는 브러시 반경(px). 작게 = 가는 선. (맵에 어울리게 얇게 — 에디터에서 미세조정)
+@export var wall_brush: float = 11.0
 
 const _FOOD_COLOR := Color(0.55, 0.9, 0.6)
 const _ERASE_COLOR := Color(0.95, 0.55, 0.45)
@@ -72,9 +72,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _painting and _tool != Tool.OBSERVE and m.distance_to(_last_paint) >= _step_for(_tool):
 			_apply(_tool, m)
 
-## 드래그로 칠할 때 도구별 최소 간격(px). 포식자는 더 띄엄띄엄.
+## 드래그로 칠할 때 도구별 최소 간격(px).
+## 포식자는 띄엄띄엄, 벽은 브러시보다 촘촘히 찍어 가는 선이 끊기지 않게.
 func _step_for(tool_id: int) -> float:
-	return predator_step if tool_id == Tool.PREDATOR else paint_step
+	match tool_id:
+		Tool.PREDATOR:
+			return predator_step
+		Tool.WALL:
+			return maxf(4.0, wall_brush * 0.8)
+	return paint_step
 
 func _apply(tool_id: int, pos: Vector2) -> void:
 	match tool_id:

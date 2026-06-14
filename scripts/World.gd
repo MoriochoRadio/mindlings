@@ -57,6 +57,10 @@ class_name World
 ## 번식마다 새 은닉 노드가 추가될 확률(구조 진화).
 @export_range(0.0, 1.0) var add_node_chance: float = 0.025
 
+@export_group("지형/장벽")
+## 벽 격자 한 칸 크기(px). 작을수록 더 가늘고 촘촘한 벽이 된다. 에디터에서 미세조정 가능.
+@export var wall_cell: int = 12
+
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
 @onready var _predators: Node2D = $Predators
@@ -67,7 +71,8 @@ var _bounds: Rect2 = Rect2()
 # 지형/장벽(M4-3). 격자 셀 단위로 벽을 칠한다 — 공간을 나눠 '종 분화' 실험을 가능케 한다
 # (FUN_DESIGN ②유도·실험 / GAME_DESIGN 4장 niche 분화). 개체·포식자의 이동을 막는다.
 # 범위 주의: 이번엔 '물리적 분리'만. 개체가 벽을 감지·우회 진화하는 '벽 센서'는 후속(IDEAS_BACKLOG).
-const WALL_CELL: int = 24                 # 벽 격자 한 칸 크기(px)
+# 칸 크기는 위 wall_cell(@export). 벽 위엔 먹이가 생기지 않고(도달 불가 먹이 방지),
+# 벽을 칠하면 그 칸의 먹이는 제거된다.
 var _walls: Dictionary = {}               # Vector2i(셀좌표) -> true
 
 # 통계
@@ -112,7 +117,7 @@ func _draw() -> void:
 	var wall_col := Color(0.34, 0.31, 0.38)       # 차분한 돌빛(은은하게)
 	var edge_col := Color(0.42, 0.39, 0.47, 0.6)
 	for cell in _walls:
-		var r := Rect2(cell.x * WALL_CELL, cell.y * WALL_CELL, WALL_CELL, WALL_CELL)
+		var r := Rect2(cell.x * wall_cell, cell.y * wall_cell, wall_cell, wall_cell)
 		draw_rect(r, wall_col, true)
 		draw_rect(r, edge_col, false, 1.0)
 	draw_rect(_bounds, Color(0.30, 0.35, 0.42), false, 2.0)
@@ -121,7 +126,7 @@ func _spawn_initial() -> void:
 	for i in initial_creatures:
 		_spawn_creature(_random_point())
 	for i in food_start_count:
-		_spawn_food(_random_point())
+		_spawn_food_random()
 
 func _on_food_timer() -> void:
 	var space: int = max_food - _food.get_child_count()
@@ -129,7 +134,7 @@ func _on_food_timer() -> void:
 		return
 	var n: int = mini(food_per_spawn, space)
 	for i in n:
-		_spawn_food(_random_point())
+		_spawn_food_random()
 
 func _spawn_creature(pos: Vector2) -> void:
 	if creature_scene == null or _creatures.get_child_count() >= max_creatures:
@@ -249,12 +254,23 @@ func _spawn_food(pos: Vector2) -> void:
 	f.position = pos
 	_food.add_child(f)
 
+## 벽이 아닌 무작위 지점에 먹이를 스폰(자동 스폰용). 벽이 많으면 몇 번 재시도 후 스킵.
+func _spawn_food_random() -> void:
+	for _try in 8:
+		var p: Vector2 = _random_point()
+		if not _cell_blocked(p):
+			_spawn_food(p)
+			return
+
 ## 신의 도구가 임의 위치(월드 로컬)에 먹이를 놓는다(M4 먹이 권능). 경계 안으로 보정.
-## 안전 상한에 걸리면 false. 근처 개체는 센서로 즉시 감지해 모여든다(손맛).
+## 벽 위에는 놓지 않는다(도달 불가 먹이 방지). 안전 상한·벽이면 false.
 func spawn_food_at(local_pos: Vector2) -> bool:
 	if food_scene == null or _food.get_child_count() >= player_food_hard_cap:
 		return false
-	_spawn_food(local_pos.clamp(_bounds.position, _bounds.end))
+	var p: Vector2 = local_pos.clamp(_bounds.position, _bounds.end)
+	if _cell_blocked(p):
+		return false
+	_spawn_food(p)
 	return true
 
 ## 보조 모드: 주어진 위치 반경 안의 먹이를 지운다. 지운 개수를 반환.
@@ -294,14 +310,18 @@ func has_walls() -> bool:
 	return not _walls.is_empty()
 
 func _cell_of(p: Vector2) -> Vector2i:
-	return Vector2i(floori(p.x / WALL_CELL), floori(p.y / WALL_CELL))
+	return Vector2i(floori(p.x / wall_cell), floori(p.y / wall_cell))
 
 func _cell_center(cell: Vector2i) -> Vector2:
-	return Vector2((cell.x + 0.5) * WALL_CELL, (cell.y + 0.5) * WALL_CELL)
+	return Vector2((cell.x + 0.5) * wall_cell, (cell.y + 0.5) * wall_cell)
 
 ## 브러시 반경 안의 셀을 벽으로 칠한다. 월드 경계 안에만. 새로 칠해졌으면 true.
+## 새로 벽이 된 칸에 있던 먹이는 제거한다(벽 아래 도달 불가 먹이가 남지 않게).
 func paint_wall(local_pos: Vector2, radius: float) -> bool:
-	return _stamp_wall(local_pos, radius, true)
+	var changed: bool = _stamp_wall(local_pos, radius, true)
+	if changed:
+		_remove_food_in_walls()
+	return changed
 
 ## 브러시 반경 안의 벽을 지운다. 하나라도 지워졌으면 true.
 func erase_wall(local_pos: Vector2, radius: float) -> bool:
@@ -310,7 +330,7 @@ func erase_wall(local_pos: Vector2, radius: float) -> bool:
 func _stamp_wall(local_pos: Vector2, radius: float, add: bool) -> bool:
 	var changed: bool = false
 	var c: Vector2i = _cell_of(local_pos)
-	var rc: int = int(ceil(radius / WALL_CELL))
+	var rc: int = int(ceil(radius / wall_cell))
 	var r2: float = radius * radius
 	for dx in range(-rc, rc + 1):
 		for dy in range(-rc, rc + 1):
@@ -330,6 +350,12 @@ func _stamp_wall(local_pos: Vector2, radius: float, add: bool) -> bool:
 
 func _cell_blocked(p: Vector2) -> bool:
 	return _walls.has(_cell_of(p))
+
+## 벽 칸 위에 놓인 먹이를 모두 제거한다(벽을 칠한 직후 호출 — 도달 불가 먹이 정리).
+func _remove_food_in_walls() -> void:
+	for f in _food.get_children():
+		if _cell_blocked(f.position):
+			f.queue_free()
 
 ## 그레이스풀 이동(개체·포식자 공용). 벽은 통과 못 하되 *벽을 따라 미끄러진다*(축 분리).
 ## from이 이미 벽 안이면(벽이 위에 칠해진 경우) 자유롭게 빠져나가게 해 영구 끼임을 막는다.
