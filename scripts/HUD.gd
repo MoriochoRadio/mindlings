@@ -65,10 +65,51 @@ func _build_ui() -> void:
 		var b := Button.new()
 		b.text = entry["label"]
 		b.toggle_mode = true
+		b.focus_mode = Control.FOCUS_NONE  # Alt+Enter의 Enter가 버튼을 누르지 않게
 		b.custom_minimum_size = Vector2(40, 0)
 		b.pressed.connect(_set_speed.bind(entry["value"]))
 		hbox.add_child(b)
 		_buttons.append(b)
+
+	_build_fullscreen_button()
+
+## 화면 우상단의 작은 전체화면 토글 버튼. 리사이즈/전체화면에서도 우상단에 붙어 있게 앵커.
+func _build_fullscreen_button() -> void:
+	var b := Button.new()
+	b.text = "⛶"
+	b.tooltip_text = "전체화면 (F11 / Alt+Enter)"
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(36, 32)
+	b.add_theme_font_size_override("font_size", 18)
+	# 우상단 앵커(토스트는 상단 중앙이라 겹치지 않음).
+	b.anchor_left = 1.0
+	b.anchor_right = 1.0
+	b.anchor_top = 0.0
+	b.anchor_bottom = 0.0
+	b.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	b.offset_left = -46.0
+	b.offset_top = 10.0
+	b.offset_right = -10.0
+	b.offset_bottom = 42.0
+	b.pressed.connect(_toggle_fullscreen)
+	add_child(b)
+
+## F11 / Alt+Enter 로도 전체화면 토글.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	var k: InputEventKey = event
+	if k.keycode == KEY_F11 or (k.keycode == KEY_ENTER and k.alt_pressed):
+		_toggle_fullscreen()
+		get_viewport().set_input_as_handled()
+
+## 전체화면 ↔ 최대화 토글(기본 실행이 최대화이므로 돌아갈 때도 최대화로).
+func _toggle_fullscreen() -> void:
+	var mode: int = DisplayServer.window_get_mode()
+	var is_fs: bool = mode == DisplayServer.WINDOW_MODE_FULLSCREEN \
+		or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+	DisplayServer.window_set_mode(
+		DisplayServer.WINDOW_MODE_MAXIMIZED if is_fs else DisplayServer.WINDOW_MODE_FULLSCREEN)
 
 func _set_speed(speed: float) -> void:
 	_current_speed = speed

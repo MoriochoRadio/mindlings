@@ -14,10 +14,16 @@ var _node_pos: Dictionary = {}   # node id -> 패널 로컬 좌표
 
 func _ready() -> void:
 	add_to_group("brain_panel")
-	size = PANEL_SIZE
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var vp: Vector2 = get_viewport_rect().size
-	position = Vector2(12.0, vp.y - PANEL_SIZE.y - 12.0)
+	# 좌하단에 앵커로 고정 → 리사이즈/전체화면(stretch expand)에서도 제자리에 머문다.
+	anchor_left = 0.0
+	anchor_right = 0.0
+	anchor_top = 1.0
+	anchor_bottom = 1.0
+	offset_left = 12.0
+	offset_right = 12.0 + PANEL_SIZE.x
+	offset_top = -(PANEL_SIZE.y + 12.0)
+	offset_bottom = -12.0
 	visible = false
 
 ## World가 호출(call_group). null이면 패널을 숨긴다.
