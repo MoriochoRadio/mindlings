@@ -22,19 +22,15 @@ class_name World
 ## 플레이어가 풀 수 있는 포식자 절대 상한(프레임 보호). 도구는 이 안에서 자유롭게 푼다.
 @export var max_predators: int = 50
 
-@export_group("먹이")
+@export_group("먹이 / 식물 군락")
 @export var food_scene: PackedScene
-## 시작 시 깔아둘 먹이 수.
-@export var food_start_count: int = 90
-## 먹이 스폰 주기(초). 줄이면 먹이 풍부 → 인구↑.
-@export var food_spawn_interval: float = 1.0
-## 한 번에 스폰하는 먹이 수.
-@export var food_per_spawn: int = 8
-## 맵 위 먹이 수 상한(자동 스폰 타이머용).
-@export var max_food: int = 220
-## 플레이어 도구로 놓는 먹이의 절대 안전 상한(프레임 보호용). 자동 스폰과 별개로
-## 손맛을 위해 넉넉히 둔다(쿨다운·자원 부담 없음 — FUN_DESIGN ①).
-@export var player_food_hard_cap: int = 800
+@export var food_source_scene: PackedScene
+## 맵 전체 먹이 수 안전 상한(모든 군락 재생의 전역 한도 — 성능 보호).
+@export var max_food: int = 240
+## 시작 시 심는 식물 군락 수.
+@export var initial_food_sources: int = 6
+## 플레이어가 심을 수 있는 군락 절대 상한(성능 보호).
+@export var max_food_sources: int = 40
 
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
@@ -90,8 +86,8 @@ class_name World
 
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
+@onready var _food_sources: Node2D = $FoodSources
 @onready var _predators: Node2D = $Predators
-@onready var _food_timer: Timer = $FoodTimer
 
 var _bounds: Rect2 = Rect2()
 
@@ -143,8 +139,6 @@ var _avoid_toasted: bool = false
 func _ready() -> void:
 	add_to_group("world")
 	_bounds = Rect2(Vector2.ZERO, world_size)
-	_food_timer.timeout.connect(_on_food_timer)
-	_food_timer.start(food_spawn_interval)
 	_spawn_initial()
 	queue_redraw()
 
@@ -161,18 +155,21 @@ func _draw() -> void:
 	draw_rect(_bounds, Color(0.30, 0.35, 0.42), false, 2.0)
 
 func _spawn_initial() -> void:
+	# 먼저 식물 군락을 심는다(각 군락은 _ready에서 주변에 먹이를 즉시 채운다).
+	for i in initial_food_sources:
+		_spawn_food_source(_random_point())
+	# 개체는 군락 근처에서 시작 — 초반 대량 아사 방지(즉시 멸종 안 나게).
 	for i in initial_creatures:
-		_spawn_creature(_random_point())
-	for i in food_start_count:
-		_spawn_food_random()
+		_spawn_creature(_creature_start_point())
 
-func _on_food_timer() -> void:
-	var space: int = max_food - _food.get_child_count()
-	if space <= 0:
-		return
-	var n: int = mini(food_per_spawn, space)
-	for i in n:
-		_spawn_food_random()
+## 시작 개체 위치: 무작위 군락 근처. 군락이 없으면 완전 무작위.
+func _creature_start_point() -> Vector2:
+	var srcs: Array = _food_sources.get_children()
+	if srcs.is_empty():
+		return _random_point()
+	var s: Node2D = srcs[randi() % srcs.size()]
+	var off := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).limit_length(1.0)
+	return (s.position + off * 180.0).clamp(_bounds.position, _bounds.end)
 
 func _spawn_creature(pos: Vector2) -> void:
 	if creature_scene == null or _creatures.get_child_count() >= max_creatures:
@@ -316,32 +313,61 @@ func _spawn_food(pos: Vector2) -> void:
 	f.position = pos
 	_food.add_child(f)
 
-## 벽이 아닌 무작위 지점에 먹이를 스폰(자동 스폰용). 벽이 많으면 몇 번 재시도 후 스킵.
-func _spawn_food_random() -> void:
-	for _try in 8:
-		var p: Vector2 = _random_point()
+## 군락이 호출: 중심 주변 반경 안(원 균등분포)에 먹이 한 알을 돋게 한다. 벽/경계/전역상한 회피.
+func spawn_food_in_radius(center: Vector2, radius: float) -> bool:
+	if food_scene == null or _food.get_child_count() >= max_food:
+		return false
+	for _try in 6:
+		var ang: float = randf() * TAU
+		var r: float = sqrt(randf()) * radius  # 원 안에 고르게
+		var p: Vector2 = (center + Vector2(cos(ang), sin(ang)) * r).clamp(_bounds.position, _bounds.end)
 		if not _cell_blocked(p):
 			_spawn_food(p)
-			return
+			return true
+	return false
 
-## 신의 도구가 임의 위치(월드 로컬)에 먹이를 놓는다(M4 먹이 권능). 경계 안으로 보정.
-## 벽 위에는 놓지 않는다(도달 불가 먹이 방지). 안전 상한·벽이면 false.
-func spawn_food_at(local_pos: Vector2) -> bool:
-	if food_scene == null or _food.get_child_count() >= player_food_hard_cap:
+## 군락 용량 판정용: 중심 반경 안의 먹이 수(먹이 수가 적어 직접 순회 — 그리드 프레임 staleness 회피).
+func count_food_near(center: Vector2, radius: float) -> int:
+	var r2: float = radius * radius
+	var n: int = 0
+	for f in _food.get_children():
+		if center.distance_squared_to(f.position) <= r2:
+			n += 1
+	return n
+
+## 신 도구가 그 자리에 새 식물 군락을 심는다(🍃 먹이 도구). 군락이 즉시 먹이를 채운다.
+func spawn_food_source_at(local_pos: Vector2) -> bool:
+	if food_source_scene == null or _food_sources.get_child_count() >= max_food_sources:
 		return false
 	var p: Vector2 = local_pos.clamp(_bounds.position, _bounds.end)
 	if _cell_blocked(p):
 		return false
-	_spawn_food(p)
+	_spawn_food_source(p)
 	return true
 
-## 보조 모드: 주어진 위치 반경 안의 먹이를 지운다. 지운 개수를 반환.
+func _spawn_food_source(pos: Vector2) -> void:
+	var s: FoodSource = food_source_scene.instantiate()
+	s.position = pos
+	s.setup(self)
+	_food_sources.add_child(s)
+
+## 보조 모드: 반경 안의 먹이를 지운다. 지운 개수를 반환.
 func remove_food_near(local_pos: Vector2, radius: float) -> int:
 	var r2: float = radius * radius
 	var removed: int = 0
 	for f in _food.get_children():
 		if local_pos.distance_squared_to(f.position) <= r2:
 			f.queue_free()
+			removed += 1
+	return removed
+
+## 보조 모드: 반경 안의 식물 군락을 제거(지우개/우클릭). 지운 개수를 반환.
+func remove_food_sources_near(local_pos: Vector2, radius: float) -> int:
+	var r2: float = radius * radius
+	var removed: int = 0
+	for s in _food_sources.get_children():
+		if local_pos.distance_squared_to(s.position) <= r2:
+			s.queue_free()
 			removed += 1
 	return removed
 

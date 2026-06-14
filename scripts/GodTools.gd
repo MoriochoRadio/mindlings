@@ -9,12 +9,10 @@ class_name GodTools
 
 enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL, LIFE }
 
-@export_group("먹이 뿌리기")
-## 한 번 찍을 때 먹이가 퍼지는 반경(px). 크게 = 관대한 조작(캐주얼).
-@export var spread_radius: float = 42.0
-## 한 번의 적용(찍기/드래그 한 스텝)당 뿌리는 먹이 수.
-@export var food_per_drop: int = 4
-## 드래그로 칠할 때 이만큼 움직일 때마다 한 번 더 뿌린다(과도 스폰·뭉침 방지).
+@export_group("먹이 / 식물 군락")
+## 드래그로 식물 군락을 심을 때 간격(px). 너무 빽빽하지 않게.
+@export var food_source_step: float = 50.0
+## 드래그로 칠할 때 기본 최소 간격(px) — 벽 등 다른 도구 공용.
 @export var paint_step: float = 16.0
 
 @export_group("지우개")
@@ -87,6 +85,8 @@ func _step_for(tool_id: int) -> float:
 			return maxf(4.0, wall_brush * 0.8)
 		Tool.LIFE:
 			return life_step
+		Tool.FOOD:
+			return food_source_step
 	return paint_step
 
 func _apply(tool_id: int, pos: Vector2) -> void:
@@ -96,7 +96,7 @@ func _apply(tool_id: int, pos: Vector2) -> void:
 			if _world != null:
 				_world.select_creature_at(pos)
 		Tool.FOOD:
-			_spread_food(pos)
+			_plant_food_source(pos)
 		Tool.ERASE:
 			_erase(pos)
 		Tool.PREDATOR:
@@ -107,24 +107,19 @@ func _apply(tool_id: int, pos: Vector2) -> void:
 			_spawn_life(pos)
 	_last_paint = pos
 
-func _spread_food(pos: Vector2) -> void:
+## 🍃 먹이 도구: 그 자리에 식물 군락을 심는다(드래그로 여러 개). 군락이 즉시 먹이를 채운다(손맛).
+func _plant_food_source(pos: Vector2) -> void:
 	if _world == null:
 		return
-	var any: bool = false
-	for i in food_per_drop:
-		var off := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
-		if off.length() > 1.0:
-			off = off.normalized()  # 원 안에 고르게
-		if _world.spawn_food_at(pos + off * spread_radius):
-			any = true
-	if any:
-		_spawn_effect(pos, spread_radius, _FOOD_COLOR)
+	if _world.spawn_food_source_at(pos):
+		_spawn_effect(pos, 40.0, _FOOD_COLOR)
 
-## 지우개(보조 모드 포함): 반경 안의 먹이와 벽을 함께 지운다.
+## 지우개(보조 모드 포함): 반경 안의 먹이·식물 군락·벽을 함께 지운다.
 func _erase(pos: Vector2) -> void:
 	if _world == null:
 		return
 	var hit: bool = _world.remove_food_near(pos, erase_radius) > 0
+	hit = _world.remove_food_sources_near(pos, erase_radius) > 0 or hit
 	hit = _world.erase_wall(pos, erase_radius) or hit
 	if hit:
 		_spawn_effect(pos, erase_radius, _ERASE_COLOR)
