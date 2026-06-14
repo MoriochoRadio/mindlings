@@ -30,9 +30,9 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 
 @export_group("모터 안정화")
 ## 이동 출력 스무딩 속도(높을수록 즉답, 낮을수록 부드럽게). 먹이 앞 좌우 떪 방지.
-@export var move_smoothing_rate: float = 16.0
+@export var move_smoothing_rate: float = 12.0
 ## 먹이에 거의 도착하면 속도를 줄여 정착(오버슈트 진동 방지). 0=감속 없음, 1=강하게.
-@export_range(0.0, 1.0) var arrival_damping: float = 0.7
+@export_range(0.0, 1.0) var arrival_damping: float = 0.82
 
 # 타깃 히스테리시스: 현재 먹이를 고수하고, 새 먹이가 이만큼 더 가까울 때만 교체(깜빡임 방지).
 const _TARGET_SWITCH_RATIO2: float = 0.7  # 거리² 비교(≈ 16% 이상 가까워야 교체)
@@ -109,6 +109,9 @@ func _physics_process(delta: float) -> void:
 	# 진화한 '방향 결정'은 그대로 두고, 그 출력을 매끄럽게 따라가게만 한다.
 	var drive_raw := Vector2(out[BrainBuilder.OUT_MOVE_X], out[BrainBuilder.OUT_MOVE_Y]).limit_length(1.0)
 	_drive = _drive.lerp(drive_raw, clampf(move_smoothing_rate * delta, 0.0, 1.0))
+	# 경계 접선 슬라이드: 가장자리에서 바깥으로 향하면 미끄러지거나 안쪽으로 보정(박힘/아사 방지).
+	if _world != null:
+		_drive = _world.slide_at_bounds(position, _drive)
 	if _drive.length() > 0.01:
 		_heading = _drive.angle()
 		rotation = _heading
@@ -116,8 +119,8 @@ func _physics_process(delta: float) -> void:
 	# 도착 감속: 먹이에 거의 닿으면 속도를 줄여 정착(오버슈트로 지나쳤다 되돌아오는 진동 방지).
 	var food_near: float = _last_sense[BrainBuilder.IN_FOOD_NEAR]
 	var speed: float = move_speed
-	if food_near > 0.85:
-		speed *= lerpf(1.0, 1.0 - arrival_damping, clampf((food_near - 0.85) / 0.15, 0.0, 1.0))
+	if food_near > 0.8:
+		speed *= lerpf(1.0, 1.0 - arrival_damping, clampf((food_near - 0.8) / 0.2, 0.0, 1.0))
 
 	var desired: Vector2 = position + _drive * speed * delta
 	if _world != null:

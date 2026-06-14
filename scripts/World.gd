@@ -419,6 +419,33 @@ func resolve_move(from: Vector2, to: Vector2) -> Vector2:
 		result.y = to.y
 	return result
 
+## 경계 접선 슬라이드(개체·포식자 공용). 월드 가장자리를 벽처럼 다룬다:
+## 바깥으로 향하는 이동 성분은 0으로(미끄러짐), 순수 바깥 방향이라 멈추면 경계 접선/안쪽으로
+## 자연스럽게 돌려준다 → '가장자리에 화살표 박힌 채 멈춰 죽는' 현상 방지(모터 안정화).
+func slide_at_bounds(pos: Vector2, vec: Vector2, margin: float = 1.0) -> Vector2:
+	var v: Vector2 = vec
+	var bx: bool = (pos.x <= _bounds.position.x + margin and v.x < 0.0) \
+		or (pos.x >= _bounds.end.x - margin and v.x > 0.0)
+	var by: bool = (pos.y <= _bounds.position.y + margin and v.y < 0.0) \
+		or (pos.y >= _bounds.end.y - margin and v.y > 0.0)
+	if bx:
+		v.x = 0.0
+	if by:
+		v.y = 0.0
+	# 성분 제거 후 거의 멈췄다면(순수 바깥 방향) 접선/안쪽으로 같은 속력만큼 돌려 박힘 방지.
+	var spd: float = vec.length()
+	if v.length() < 0.01 and spd > 0.01:
+		var center: Vector2 = _bounds.get_center()
+		if bx and not by:
+			var sy: float = signf(vec.y) if absf(vec.y) > 0.01 else signf(center.y - pos.y)
+			v = Vector2(0.0, sy) * spd
+		elif by and not bx:
+			var sx: float = signf(vec.x) if absf(vec.x) > 0.01 else signf(center.x - pos.x)
+			v = Vector2(sx, 0.0) * spd
+		else:
+			v = (center - pos).normalized() * spd
+	return v
+
 func _random_point() -> Vector2:
 	return Vector2(
 		randf_range(_bounds.position.x, _bounds.end.x),

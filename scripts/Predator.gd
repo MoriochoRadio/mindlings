@@ -81,8 +81,13 @@ func _physics_process(delta: float) -> void:
 	if moving.length() > 0.01:
 		# 부드러운 선회(각도 보간). 급선회하는 먹잇감은 turn_rate가 낮을수록 놓친다.
 		_heading = lerp_angle(_heading, moving.angle(), clampf(turn_rate * delta, 0.0, 1.0))
-		rotation = _heading
-		var desired: Vector2 = position + Vector2.from_angle(_heading) * move_speed * delta
+		var step: Vector2 = Vector2.from_angle(_heading) * move_speed * delta
+		if _world != null:
+			step = _world.slide_at_bounds(position, step)  # 경계에 박히지 말고 미끄러지게
+		if step.length() > 0.001:
+			_heading = step.angle()
+			rotation = _heading
+		var desired: Vector2 = position + step
 		if _world != null:
 			desired = _world.resolve_move(position, desired)  # 벽을 통과 못 하고 따라 미끄러진다
 		position = desired.clamp(_bounds.position, _bounds.end)
