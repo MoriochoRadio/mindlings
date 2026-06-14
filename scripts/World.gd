@@ -13,9 +13,9 @@ class_name World
 @export_group("개체")
 @export var creature_scene: PackedScene
 ## 시작 시 스폰할 창시자(gen 0) 수.
-@export var initial_creatures: int = 64
-## 개체 수 상한(인구 폭발 방지). 넓어진 월드에 비례해 상향(성능 민감 — 버벅이면 낮출 것).
-@export var max_creatures: int = 200
+@export var initial_creatures: int = 56
+## 개체 수 상한(인구 폭발 방지). 공간 그리드로 센싱은 가벼워졌지만 합리적 기본값 유지(버벅이면 낮출 것).
+@export var max_creatures: int = 160
 
 @export_group("포식자")
 @export var predator_scene: PackedScene
@@ -25,13 +25,13 @@ class_name World
 @export_group("먹이")
 @export var food_scene: PackedScene
 ## 시작 시 깔아둘 먹이 수.
-@export var food_start_count: int = 100
+@export var food_start_count: int = 90
 ## 먹이 스폰 주기(초). 줄이면 먹이 풍부 → 인구↑.
 @export var food_spawn_interval: float = 1.0
 ## 한 번에 스폰하는 먹이 수.
-@export var food_per_spawn: int = 10
+@export var food_per_spawn: int = 8
 ## 맵 위 먹이 수 상한(자동 스폰 타이머용).
-@export var max_food: int = 260
+@export var max_food: int = 220
 ## 플레이어 도구로 놓는 먹이의 절대 안전 상한(프레임 보호용). 자동 스폰과 별개로
 ## 손맛을 위해 넉넉히 둔다(쿨다운·자원 부담 없음 — FUN_DESIGN ①).
 @export var player_food_hard_cap: int = 800
@@ -83,12 +83,24 @@ class_name World
 ## 자동 부활 시 나타나는 창시자 수.
 @export var auto_revive_count: int = 6
 
+@export_group("성능")
+## 공간 분할 그리드 한 칸 크기(px). 센싱을 O(N²)→근처 셀만으로 줄인다.
+## 반드시 개체 sense_radius(기본 220) 이상이어야 3x3 조회로 충분하다.
+@export var grid_cell_size: float = 240.0
+
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
 @onready var _predators: Node2D = $Predators
 @onready var _food_timer: Timer = $FoodTimer
 
 var _bounds: Rect2 = Rect2()
+
+# 공간 분할 그리드(성능 — O(N²) 센싱 제거). 매 물리 틱 1회만 재구성(프레임 가드).
+# 셀좌표 Vector2i -> Array[Node2D]. 개체가 query하면 그 프레임 첫 호출이 그리드를 짓는다.
+var _grid_creatures: Dictionary = {}
+var _grid_food: Dictionary = {}
+var _grid_predators: Dictionary = {}
+var _grid_frame: int = -1
 
 # 지형/장벽(M4-3). 격자 셀 단위로 벽을 칠한다 — 공간을 나눠 '종 분화' 실험을 가능케 한다
 # (FUN_DESIGN ②유도·실험 / GAME_DESIGN 4장 niche 분화). 개체·포식자의 이동을 막는다.
@@ -362,6 +374,56 @@ func report_predation(prey: Creature) -> void:
 ## 포식자가 굶어 죽었을 때 호출(현재는 통계 훅 자리 — 자기 균형의 신호).
 func report_predator_death() -> void:
 	pass
+
+# ── 공간 분할 그리드(성능) — 센싱을 O(N²)에서 근처 셀 조회로 ──────────────
+# 개체/포식자가 매 틱 호출하는 *_near(pos)가 그 프레임 첫 호출 때 그리드를 1회 짓는다(프레임 가드).
+# 3x3 셀만 모으면 grid_cell_size >= sense_radius 인 한 반경 안 후보를 모두 포함한다(거리 필터는 호출부가 유지).
+
+func _ensure_grid() -> void:
+	var f: int = Engine.get_physics_frames()
+	if _grid_frame == f:
+		return
+	_grid_frame = f
+	_grid_creatures.clear()
+	_grid_food.clear()
+	_grid_predators.clear()
+	for c in _creatures.get_children():
+		_bucket(_grid_creatures, c)
+	for fd in _food.get_children():
+		_bucket(_grid_food, fd)
+	for p in _predators.get_children():
+		_bucket(_grid_predators, p)
+
+func _bucket(grid: Dictionary, node: Node2D) -> void:
+	var key := Vector2i(floori(node.position.x / grid_cell_size), floori(node.position.y / grid_cell_size))
+	if grid.has(key):
+		grid[key].append(node)
+	else:
+		grid[key] = [node]
+
+func _query(grid: Dictionary, pos: Vector2) -> Array:
+	var out: Array = []
+	var cx: int = floori(pos.x / grid_cell_size)
+	var cy: int = floori(pos.y / grid_cell_size)
+	for dx in range(-1, 2):
+		for dy in range(-1, 2):
+			var arr: Variant = grid.get(Vector2i(cx + dx, cy + dy))
+			if arr != null:
+				out.append_array(arr)
+	return out
+
+## 근처(3x3 셀)의 개체/먹이/포식자만 반환. 호출부는 sense_radius로 거리 필터를 유지한다.
+func creatures_near(pos: Vector2) -> Array:
+	_ensure_grid()
+	return _query(_grid_creatures, pos)
+
+func food_near(pos: Vector2) -> Array:
+	_ensure_grid()
+	return _query(_grid_food, pos)
+
+func predators_near(pos: Vector2) -> Array:
+	_ensure_grid()
+	return _query(_grid_predators, pos)
 
 # ── 지형/장벽(M4-3) ──────────────────────────────────────────────
 

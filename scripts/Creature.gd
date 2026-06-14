@@ -70,6 +70,7 @@ var _stuck_accum: float = 0.0          # 끼임 감지 누적 시간
 var _stuck_ref: Vector2 = Vector2.ZERO # 끼임 감지 기준 위치
 var _nudge_timer: float = 0.0          # >0이면 탈출 넛지 중
 var _nudge_dir: Vector2 = Vector2.ZERO # 탈출 방향(열린 쪽)
+var _color_step: int = -1              # 에너지→색 양자화 단계(바뀔 때만 다시 그림 — 성능)
 var _bounds: Rect2 = Rect2()
 var _world: World = null
 
@@ -103,7 +104,7 @@ func _ready() -> void:
 	_heading = randf() * TAU
 	rotation = _heading
 	_stuck_ref = position
-	queue_redraw()
+	_update_color()  # 첫 그리기
 
 ## 유전 형질을 외형·능력에 반영한다(번식 시마다 인스턴스별로 한 번). 크기는 트레이드오프 동반.
 func _apply_genes() -> void:
@@ -211,7 +212,7 @@ func _sense() -> Array:
 	var nearest_food: Node2D = null
 	var best_d2: float = sense_radius * sense_radius
 	if _world != null:
-		for f in _world.get_food_nodes():
+		for f in _world.food_near(position):  # 공간 그리드: 근처 셀만(성능)
 			var d2: float = position.distance_squared_to(f.position)
 			if d2 < best_d2 and not (walls and _world.is_blocked_between(position, f.position)):
 				best_d2 = d2
@@ -240,7 +241,7 @@ func _sense() -> Array:
 	var kbest: float = sense_radius * sense_radius
 	var radius2: float = sense_radius * sense_radius
 	if _world != null:
-		for c in _world.get_creature_nodes():
+		for c in _world.creatures_near(position):  # 공간 그리드: 근처 셀만(성능)
 			if c == self:
 				continue
 			var d2: float = position.distance_squared_to(c.position)
@@ -262,7 +263,7 @@ func _sense() -> Array:
 	var nearest_pred: Node2D = null
 	var pbest: float = sense_radius * sense_radius
 	if _world != null:
-		for p in _world.get_predator_nodes():
+		for p in _world.predators_near(position):  # 공간 그리드: 근처 셀만(성능)
 			var d2: float = position.distance_squared_to(p.position)
 			if d2 < pbest and not (walls and _world.is_blocked_between(position, p.position)):
 				pbest = d2
@@ -322,9 +323,13 @@ func _update_stuck(delta: float) -> void:
 	_stuck_ref = position
 	_stuck_accum = 0.0
 
-## 에너지 변화 등으로 색이 바뀌므로 다시 그린다(색 계산은 _draw/body_color에서).
+## 성능: 위치/회전은 transform으로 처리되어 다시 그릴 필요가 없다. 색(에너지)만 바뀔 때 그린다.
+## 에너지를 12단계로 양자화해, 단계가 바뀔 때만 queue_redraw(매 프레임 X → 200개 부담 제거).
 func _update_color() -> void:
-	queue_redraw()
+	var step: int = int(clampf(energy / max_energy, 0.0, 1.0) * 12.0)
+	if step != _color_step:
+		_color_step = step
+		queue_redraw()
 
 ## "생각 한 줄"(LEGIBILITY_UX 기법1): 현재 감각/행동을 1인칭 다정한 말로 통역.
 ## 전문 용어 없이, 가장 두드러진 상황을 골라 친근한 문장으로 만든다.

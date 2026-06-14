@@ -17,6 +17,7 @@ var _info_label: Label
 var _stats_label: Label
 var _buttons: Array[Button] = []
 var _current_speed: float = 1.0
+var _stats_accum: float = 999.0  # 평균 뇌(무거운 집계)는 매 프레임 X, 약 0.4초마다 갱신
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # 전체 화면 Control이 입력을 먹지 않게
@@ -24,16 +25,21 @@ func _ready() -> void:
 	_build_ui()
 	_set_speed(1.0)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _world == null:
 		return
+	# 가벼운 값(개수)은 매 프레임. 배속 영향 없이 idle로 돈다.
 	var pred: int = _world.get_predator_count()
 	var pred_text: String = "    포식자: %d" % pred if pred > 0 else ""
 	_info_label.text = "개체 수: %d    먹이: %d%s    배속: %s" % [
 		_world.get_population(), _world.get_food_count(), pred_text, _speed_text()]
-	var brain: Vector2 = _world.get_avg_brain()
-	_stats_label.text = "세대: %d    평균 수명: %.1fs    평균 뇌: 노드 %.1f / 연결 %.1f" % [
-		_world.get_generation(), _world.get_avg_lifespan(), brain.x, brain.y]
+	# 평균 뇌는 O(N×연결)이라 매 프레임 돌리지 않고 ~0.4초마다 갱신(성능).
+	_stats_accum += delta
+	if _stats_accum >= 0.4:
+		_stats_accum = 0.0
+		var brain: Vector2 = _world.get_avg_brain()
+		_stats_label.text = "세대: %d    평균 수명: %.1fs    평균 뇌: 노드 %.1f / 연결 %.1f" % [
+			_world.get_generation(), _world.get_avg_lifespan(), brain.x, brain.y]
 
 func _build_ui() -> void:
 	var panel := PanelContainer.new()

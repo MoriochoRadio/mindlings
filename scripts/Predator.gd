@@ -100,7 +100,7 @@ func _nearest_prey() -> Creature:
 		return null
 	var nearest: Creature = null
 	var best: float = detect_radius * detect_radius
-	for c in _world.get_creature_nodes():
+	for c in _world.creatures_near(position):  # 공간 그리드: 근처 셀만(성능)
 		var d2: float = position.distance_squared_to(c.position)
 		if d2 < best:
 			best = d2
