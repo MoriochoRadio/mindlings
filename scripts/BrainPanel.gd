@@ -98,18 +98,33 @@ func _draw() -> void:
 	draw_line(Vector2(12, 102), Vector2(PANEL_SIZE.x - 12, 102), Color(1, 1, 1, 0.10), 1.0)
 	draw_string(font, Vector2(12, 118), "이 아이의 진짜 뇌 (고급)",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.6, 0.68))
+	# 기억(순환) 연결이 생긴 개체는 한눈에 표시 — '보이는 새 능력'(가독성×정교함).
+	if net.has_recurrent():
+		draw_string(font, Vector2(150, 118), "· 🧠 기억(보라 점선)",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.80, 0.62, 1.0))
 
 	# 연결선: 신호(=출발 노드 활성 × 가중치) 부호로 색, 세기로 굵기·불투명도.
+	# 기억(순환) 연결은 보라 점선으로 구분 — '이전 틱' 값을 읽으므로 신호도 prev로 계산.
 	for c in net.connections:
 		if not c.enabled or not _node_pos.has(c.from_id) or not _node_pos.has(c.to_id):
 			continue
 		var a: Vector2 = _node_pos[c.from_id]
 		var b: Vector2 = _node_pos[c.to_id]
-		var sig: float = net.nodes[c.from_id].value * c.weight
+		var src: float = net.nodes[c.from_id].prev if c.recurrent else net.nodes[c.from_id].value
+		var sig: float = src * c.weight
 		var mag: float = clampf(absf(sig), 0.0, 1.0)
-		var col: Color = Color(0.4, 0.8, 1.0) if sig >= 0.0 else Color(1.0, 0.5, 0.4)
-		col.a = 0.10 + 0.7 * mag
-		draw_line(a, b, col, 1.0 + 3.0 * mag)
+		if c.recurrent:
+			var rcol := Color(0.78, 0.55, 1.0)
+			rcol.a = 0.30 + 0.6 * mag
+			var rw: float = 1.0 + 2.5 * mag
+			if c.from_id == c.to_id:
+				_draw_self_loop(a, rcol, rw)  # 자기 자신을 기억하는 가장 단순한 기억 셀
+			else:
+				_draw_dashed_line(a, b, rcol, rw)
+		else:
+			var col: Color = Color(0.4, 0.8, 1.0) if sig >= 0.0 else Color(1.0, 0.5, 0.4)
+			col.a = 0.10 + 0.7 * mag
+			draw_line(a, b, col, 1.0 + 3.0 * mag)
 
 	# 노드: 활성값으로 색(파랑 음수 ↔ 회색 0 ↔ 초록 양수).
 	for id in _node_pos:
@@ -134,6 +149,23 @@ func _draw_labels(font: Font, net: MindNet) -> void:
 			var p: Vector2 = _node_pos[net.output_ids[o]]
 			draw_string(font, Vector2(p.x + NODE_R + 6, p.y + 4), Creature.OUTPUT_LABELS[o],
 				HORIZONTAL_ALIGNMENT_LEFT, 70, 12, Color(0.78, 0.83, 0.9))
+
+## 점선(기억/순환 연결 표시용). 일정 간격으로 짧은 선분을 그린다.
+func _draw_dashed_line(a: Vector2, b: Vector2, col: Color, width: float) -> void:
+	var d: Vector2 = b - a
+	var total: float = d.length()
+	if total < 0.001:
+		return
+	var dir: Vector2 = d / total
+	var t: float = 0.0
+	while t < total:
+		var t2: float = minf(t + 5.0, total)  # 5px 선분 + 4px 간격
+		draw_line(a + dir * t, a + dir * t2, col, width)
+		t = t2 + 4.0
+
+## 자기연결(노드가 자기 자신을 기억) — 노드 위쪽에 작은 고리.
+func _draw_self_loop(p: Vector2, col: Color, width: float) -> void:
+	draw_arc(p + Vector2(0.0, -NODE_R - 6.0), 5.0, 0.0, TAU, 14, col, width)
 
 func _activation_color(v: float) -> Color:
 	var t: float = clampf(v, -1.0, 1.0)

@@ -48,8 +48,10 @@ const _BIAS_ID: int = 100
 const _OUT_BASE: int = 200
 
 ## 창시자 두뇌를 만든다. bias_strength로 본능 세기 조절(0이면 완전 무작위).
-static func build(bias_strength: float = 0.8) -> MindNet:
+## value_clamp는 순환 진동/폭주 방어용 활성값 한계(World가 @export로 튜닝). 창시자엔 순환 연결은 없다.
+static func build(bias_strength: float = 0.8, value_clamp: float = 1.0) -> MindNet:
 	var net := MindNet.new()
+	net.value_clamp = value_clamp
 	for i in SENSOR_COUNT:
 		net.add_node(i, MindNet.NodeKind.SENSOR)
 	net.add_node(_BIAS_ID, MindNet.NodeKind.BIAS)

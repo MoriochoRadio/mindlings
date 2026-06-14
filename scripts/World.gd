@@ -64,6 +64,11 @@ class_name World
 @export_range(0.0, 1.0) var add_conn_chance: float = 0.05
 ## 번식마다 새 은닉 노드가 추가될 확률(구조 진화).
 @export_range(0.0, 1.0) var add_node_chance: float = 0.025
+## 번식마다 새 순환(기억) 연결이 추가될 확률 — '기억'의 구조 진화(AI 정교화 1단계).
+## 창시자엔 안 줌. 0이면 기억 진화 OFF(순수 반응형 비교용).
+@export_range(0.0, 1.0) var add_recurrent_chance: float = 0.04
+## 활성값 클램프(순환 진동/폭주 방어). tanh가 이미 [-1,1]이라 1.0이 기본; 더 조이려면 낮춘다.
+@export_range(0.1, 1.0) var recurrent_clamp: float = 1.0
 
 @export_group("형질 유전(크기·색)")
 ## 크기 유전자 하한/상한. 외형·능력 배율(1.0=기본).
@@ -208,8 +213,8 @@ func _spawn_creature(pos: Vector2) -> void:
 		return
 	var c: Creature = creature_scene.instantiate()
 	c.position = pos
-	# 창시자: 약한 본능을 가진 무작위 두뇌(gen 0) + 무작위 유전 형질(크기·색).
-	c.setup(_bounds, self, BrainBuilder.build(founder_bias),
+	# 창시자: 약한 본능을 가진 무작위 두뇌(gen 0, 순환 없음) + 무작위 유전 형질(크기·색).
+	c.setup(_bounds, self, BrainBuilder.build(founder_bias, recurrent_clamp),
 		CreatureGenes.make_founder(founder_size_spread))
 	_creatures.add_child(c)
 
@@ -219,8 +224,9 @@ func reproduce(parent: Creature) -> bool:
 	if _creatures.get_child_count() >= max_creatures:
 		return false
 	var child_brain: MindNet = parent.get_brain().clone()
+	child_brain.value_clamp = recurrent_clamp  # 라이브 튜닝 반영(클론은 부모 값을 물려받지만 현재 설정으로 덮어씀)
 	child_brain.mutate(weight_mutate_rate, weight_perturb, weight_replace_chance,
-		add_conn_chance, add_node_chance)
+		add_conn_chance, add_node_chance, add_recurrent_chance)
 	# 유전 형질(크기·색)도 부모에서 복제 후 돌연변이로 물려준다(뇌와 동일 원리).
 	var child_genes: CreatureGenes = parent.genes.inherit(
 		gene_size_min, gene_size_max, size_mutate_rate, size_mutate_amount, hue_mutate_amount)
@@ -449,7 +455,7 @@ func predator_speed_factor(p: Vector2) -> float:
 	return f
 
 ## 신의 도구가 그 자리에 새 창시자(gen 0)를 만든다(M4-4 생명 생성). 전멸에서도 부활 가능.
-## 두뇌 = BrainBuilder.build(founder_bias): 새 뇌 + 약한 사전 편향(현재 14입력 레이아웃).
+## 두뇌 = BrainBuilder.build(founder_bias, recurrent_clamp): 새 뇌 + 약한 사전 편향(현재 17입력, 순환 없음).
 ## 개체 수 상한 준수. 만들었으면 true.
 func spawn_creature_at(local_pos: Vector2) -> bool:
 	if creature_scene == null or _creatures.get_child_count() >= max_creatures:

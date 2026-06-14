@@ -63,6 +63,7 @@ var nickname: String = ""         # 자동 닉네임(애착·가독성). 비어 
 
 var _alive: bool = true  # 포식·아사 중복 처리 방지(한 번만 죽는다)
 var _sheltered: bool = false  # 지금 안전지대 안인가(_sense에서 갱신 — 생각 한 줄용)
+var _danger_memory: float = 0.0  # 최근 위험의 잔상(천천히 감쇠). 기억 가진 개체의 '경계'를 말로 보이게
 var _brain: MindNet = null
 var _heading: float = 0.0
 var _want_eat: bool = true
@@ -166,6 +167,8 @@ func _physics_process(delta: float) -> void:
 	var out: Array = _brain.get_outputs()
 	_last_sense = inputs
 	_last_out = out
+	# 위험 잔상(생각 한 줄용): 포식자가 가까우면 즉시 차오르고, 멀어지면 천천히 잊는다(~3초).
+	_danger_memory = maxf(inputs[BrainBuilder.IN_PRED_NEAR], _danger_memory - delta * 0.35)
 
 	_want_eat = out[BrainBuilder.OUT_EAT] > 0.0
 	_try_eat()  # 겹친 먹이를 매 틱 확인해 먹는다(엣지 트리거 함정 방지 — 먹이 앞 떪의 주원인)
@@ -380,6 +383,9 @@ func get_thought() -> String:
 		return "😨 포식자다, 도망쳐!"
 	if pred_near > 0.2:
 		return "😰 저쪽에 무서운 게 있어… 조심조심"
+	# 기억(순환 연결)이 진화한 개체만: 위험이 지나갔어도 잔상이 남아 잠시 경계한다(기억이 보이게).
+	if _brain != null and _brain.has_recurrent() and _danger_memory > 0.35:
+		return "🧠 아까 위험했어, 조심…"
 	if food_near > 0.75:
 		return "😋 거의 다 왔다, 먹자!"
 	# 앞이 벽으로 막혔는데 당장 먹을 게 코앞은 아니면 → 돌아갈 생각.
