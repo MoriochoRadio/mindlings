@@ -8,7 +8,7 @@ extends RefCounted
 ## 창시자에게만 약한 본능(bias_strength)을 줘 콜드스타트 멸종을 막는다.
 ## bias_strength=0 이면 창시자도 완전 무작위 — 순수 진화를 보고 싶을 때.
 
-const SENSOR_COUNT: int = 17
+const SENSOR_COUNT: int = 20
 const OUTPUT_COUNT: int = 3
 
 # 센서(입력) 인덱스 — Creature.INPUT_LABELS / _sense() 순서와 일치해야 한다.
@@ -38,6 +38,12 @@ const IN_WALL_R: int = 13
 const IN_REFUGE_X: int = 14
 const IN_REFUGE_Y: int = 15
 const IN_REFUGE_NEAR: int = 16
+# 위험 경보(소통 1단계). 가장 강한 '들리는 경보'의 방향(강도로 스케일)+강도.
+# 다른 개체가 위협을 보고 방출한 신호 → 포식자를 직접 못 봐도 도망칠 수 있다(사회적 전파).
+# 본능 ⑤(경보에서 멀어짐)는 창시자에 약하게 심고 진화가 다듬는다.
+const IN_ALARM_X: int = 17
+const IN_ALARM_Y: int = 18
+const IN_ALARM_NEAR: int = 19
 
 # 출력 인덱스 — Creature.OUTPUT_LABELS 순서와 일치해야 한다.
 const OUT_MOVE_X: int = 0
@@ -86,6 +92,9 @@ static func build(instinct_strength: float = 0.6, instinct_variation: float = 0.
 		# ③ 안전지대로 향함(안전 센서 → 그쪽, 양수, 먹이보다 약하게). 약한 상시 끌림 = '집 근처에 머무는' 성향.
 		net.add_connection(IN_REFUGE_X, _OUT_BASE + OUT_MOVE_X, _instinct(0.4, 0.8, s, v))
 		net.add_connection(IN_REFUGE_Y, _OUT_BASE + OUT_MOVE_Y, _instinct(0.4, 0.8, s, v))
+		# ⑤ 경보에서 멀어짐(경보 센서 → 반대 방향, 음수). 경보 없으면 입력 0 → '들릴 때만' 작동(사회적 도망).
+		net.add_connection(IN_ALARM_X, _OUT_BASE + OUT_MOVE_X, -_instinct(0.7, 1.2, s, v))
+		net.add_connection(IN_ALARM_Y, _OUT_BASE + OUT_MOVE_Y, -_instinct(0.7, 1.2, s, v))
 
 	net.compile()
 	return net

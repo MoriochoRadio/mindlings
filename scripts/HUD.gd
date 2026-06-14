@@ -33,10 +33,12 @@ func _process(delta: float) -> void:
 	var pop: int = _world.get_population()
 	var pred_text: String = ""
 	if pred > 0:
-		# 진단: 포식자가 풀린 동안 '은신 수(비율)'를 보여 본능 작동을 수치로 확인(눈대중 X).
+		# 진단: 포식자가 풀린 동안 '은신 수(비율)' + '경보로만 반응한 수'로 본능·소통 작동을 수치로 확인.
 		var sheltered: int = _world.get_sheltered_count()
 		var pct: int = int(round(100.0 * float(sheltered) / float(maxi(1, pop))))
-		pred_text = "    포식자: %d    🏠 은신: %d (%d%%)" % [pred, sheltered, pct]
+		var heard: int = _world.get_alarm_reacting_count()
+		var heard_text: String = "    🗣️ 경보반응: %d" % heard if heard > 0 else ""
+		pred_text = "    포식자: %d    🏠 은신: %d (%d%%)%s" % [pred, sheltered, pct, heard_text]
 	_info_label.text = "개체 수: %d    먹이: %d%s    배속: %s" % [
 		pop, _world.get_food_count(), pred_text, _speed_text()]
 	# 평균 뇌는 O(N×연결)이라 매 프레임 돌리지 않고 ~0.4초마다 갱신(성능).

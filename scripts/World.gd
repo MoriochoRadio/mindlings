@@ -48,6 +48,21 @@ class_name World
 ## 진입 차단 시 포식자를 안전지대 경계에서 이만큼(px) 바깥에 막는다(경계에 딱 붙지 않게).
 @export var predator_block_margin: float = 6.0
 
+@export_group("소통 — 위험 경보")
+## 개체가 '직접 본' 위협(포식자 근접도)이 이 이상이면 경보를 방출(0~1). 발신은 직접 시야에만
+## 의존 — 경보를 듣고 또 방출하는 무한 피드백(폭주)을 원천 차단.
+@export var alarm_emit_threshold: float = 0.4
+## 한 개체의 경보 재방출 최소 간격(초) — 매 틱 도배 방지.
+@export var alarm_emit_cooldown: float = 0.6
+## 경보 신호가 초당 감쇠하는 양(클수록 빨리 사라짐 — '잠깐 남는 신호').
+@export var alarm_decay: float = 1.2
+## 개체가 경보를 듣는 최대 거리(px). 직접 시야(sense_radius 220)보다 넓게 둬 '못 본 위험'도 듣게.
+@export var alarm_hear_radius: float = 340.0
+## 동시 경보 수 안전 상한(성능·폭주 방지).
+@export var max_alarms: int = 120
+## 진단/토스트: '직접 못 본 포식자에 경보로 반응'한 개체가 이 수를 넘으면 무리 도망 토스트.
+@export var alarm_toast_min: int = 6
+
 @export_group("번식/진화")
 ## 이 에너지를 넘으면 번식한다(높을수록 번식 어려움 → 인구↓).
 @export var repro_threshold: float = 90.0
@@ -116,6 +131,12 @@ class_name World
 @onready var _predators: Node2D = $Predators
 
 var _bounds: Rect2 = Rect2()
+
+# 위험 경보(소통 1단계). 개체가 위협을 직접 보면 자기 위치에 경보를 방출 → 시간 감쇠 → 주변이 듣는다.
+# 경보 수는 max_alarms로 캡되어(보통 수십 개) 직접 순회로 충분히 가볍다(별도 그리드 불필요).
+var _alarms: Array = []          # [{pos: Vector2, strength: float}] — strength가 시간 감쇠
+var _alarm_toasted: bool = false # 무리 도망 토스트 1회 게이트(반응 수가 0으로 떨어지면 재무장)
+var _alarm_reacting_count: int = 0 # 캐시: 경보로만 반응 중인 개체 수(HUD/토스트 공용)
 
 # 공간 분할 그리드(성능 — O(N²) 센싱 제거). 매 물리 틱 1회만 재구성(프레임 가드).
 # 셀좌표 Vector2i -> Array[Node2D]. 개체가 query하면 그 프레임 첫 호출이 그리드를 짓는다.
@@ -288,6 +309,8 @@ func report_death(age: float) -> void:
 func _process(delta: float) -> void:
 	_accumulate_predator_stats(delta)
 	_check_extinction(delta)
+	_update_alarms(delta)
+	_evaluate_alarm_reactions()
 	_check_accum += delta
 	if _check_accum < 1.5:
 		return
@@ -485,6 +508,59 @@ func remove_refuges_near(local_pos: Vector2, radius: float) -> int:
 ## 개체가 안전지대 센서로 가장 가까운 은신처를 훑을 때 사용(매 틱). 은신처는 소수라 직접 순회.
 func get_refuge_nodes() -> Array:
 	return _refuges.get_children()
+
+# ── 위험 경보(소통 1단계) ─────────────────────────────────────────
+## 개체가 위협을 직접 보면 호출(Creature). 자기 위치에 경보를 남긴다(시간 감쇠로 잠깐 존재).
+func emit_alarm(pos: Vector2, strength: float) -> void:
+	if _alarms.size() >= max_alarms:
+		return
+	_alarms.append({"pos": pos, "strength": clampf(strength, 0.0, 1.0)})
+
+## 매 프레임 경보를 감쇠시키고 사라진 것을 치운다(잠깐 남는 신호).
+func _update_alarms(delta: float) -> void:
+	if _alarms.is_empty():
+		_alarm_toasted = false
+		return
+	var kept: Array = []
+	for a in _alarms:
+		a.strength -= alarm_decay * delta
+		if a.strength > 0.05:
+			kept.append(a)
+	_alarms = kept
+
+## 개체가 듣는 가장 강한 경보: 방향(단위)+강도(거리로 감쇠). 없으면 (ZERO, 0).
+## 자기 경보(거의 0거리)는 무시 — 자기 신호 자기수신 피드백 방지.
+func hear_alarm(pos: Vector2) -> Dictionary:
+	var best_int: float = 0.0
+	var best_dir: Vector2 = Vector2.ZERO
+	var r2: float = alarm_hear_radius * alarm_hear_radius
+	for a in _alarms:
+		var d2: float = pos.distance_squared_to(a.pos)
+		if d2 > r2 or d2 < 16.0:
+			continue
+		var dist: float = sqrt(d2)
+		var inten: float = a.strength * (1.0 - dist / alarm_hear_radius)
+		if inten > best_int:
+			best_int = inten
+			best_dir = (a.pos - pos) / dist
+	return {"dir": best_dir, "intensity": best_int}
+
+## 진단(소통 작동 확인): '포식자를 직접 못 봤는데 경보로 반응 중'인 개체 수(캐시). 0보다 크면 사회적 전파 작동.
+func get_alarm_reacting_count() -> int:
+	return _alarm_reacting_count
+
+## 매 프레임 경보 반응 수를 집계하고, 임계를 넘으면 '무리가 함께 도망쳤다' 토스트 1회(0으로 식으면 재무장).
+func _evaluate_alarm_reactions() -> void:
+	var n: int = 0
+	for c in _creatures.get_children():
+		if (c as Creature).is_alarm_reacting():
+			n += 1
+	_alarm_reacting_count = n
+	if n >= alarm_toast_min and not _alarm_toasted:
+		_alarm_toasted = true
+		_toast("📢 한 명이 위험을 알리자 무리가 함께 도망쳤어요!")
+	elif n == 0:
+		_alarm_toasted = false
 
 ## 이 위치가 어떤 안전지대 안인가 — 포식 차단·생각 한 줄 공용(은신처는 소수라 직접 순회).
 func is_sheltered(p: Vector2) -> bool:

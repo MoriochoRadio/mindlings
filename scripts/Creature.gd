@@ -8,7 +8,8 @@ class_name Creature
 const INPUT_LABELS: Array[String] = [
 	"먹이→x", "먹이→y", "먹이근접", "에너지", "동족→x", "동족→y", "밀도", "나이",
 	"위험→x", "위험→y", "위험근접", "벽-좌", "벽-앞", "벽-우",
-	"안전→x", "안전→y", "안전근접"]
+	"안전→x", "안전→y", "안전근접",
+	"경보→x", "경보→y", "경보세기"]
 const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 
 @export_group("에너지")
@@ -39,6 +40,13 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var refuge_threat_gain: float = 3.0
 ## 위협이 가까울수록 먹이 끌림을 누르는 정도(0=안 누름, 1=완전히). '공포가 허기를 누른다'.
 @export_range(0.0, 1.0) var fear_food_suppress: float = 0.7
+
+@export_subgroup("소통 — 위험 경보 반응")
+## 들은 경보를 '위협도'로 환산하는 배율 — 안전지대 게이팅을 경보로도 켠다(못 본 위험에 도망/은신).
+## 위협도 = max(직접 포식자 근접도, 경보강도×이 값). 0이면 경보가 게이팅에 영향 X(이동 본능만).
+@export_range(0.0, 2.0) var alarm_react_strength: float = 1.0
+## 경보 방출 시 발신 고리(가독성)가 보이는 시간(초).
+@export var alarm_cue_duration: float = 0.6
 
 @export_group("모터 안정화")
 ## 이동 출력 스무딩 속도(높을수록 즉답, 낮을수록 부드럽게). 먹이 앞 좌우 떪 방지.
@@ -75,6 +83,9 @@ var nickname: String = ""         # 자동 닉네임(애착·가독성). 비어 
 var _alive: bool = true  # 포식·아사 중복 처리 방지(한 번만 죽는다)
 var _sheltered: bool = false  # 지금 안전지대 안인가(_sense에서 갱신 — 생각 한 줄용)
 var _danger_memory: float = 0.0  # 최근 위험의 잔상(천천히 감쇠). 기억 가진 개체의 '경계'를 말로 보이게
+var _alarm_cooldown: float = 0.0 # 경보 재방출 쿨다운(매 틱 도배 방지)
+var _alarm_flash: float = 0.0    # >0이면 발신 고리 표시 중(가독성)
+var _alarm_reacting: bool = false # 포식자를 직접 못 봤는데 경보로 반응 중(진단·생각용)
 var _brain: MindNet = null
 var _heading: float = 0.0
 var _want_eat: bool = true
@@ -138,6 +149,10 @@ func _draw() -> void:
 	draw_arc(Vector2(-1.0, 0.0), 6.0, 0.0, TAU, 18, outline, 1.0)
 	draw_circle(Vector2(5.2, 0.0), 3.6, col.lightened(0.18))  # 머리(앞쪽)
 	draw_arc(Vector2(5.2, 0.0), 3.6, 0.0, TAU, 14, outline, 1.0)
+	# 위험 경보 발신 고리(가독성 — 퍼지는 신호). 방출 직후 잠깐 커지며 옅어진다.
+	if _alarm_flash > 0.0:
+		var t: float = _alarm_flash / maxf(0.01, alarm_cue_duration)  # 1→0
+		draw_arc(Vector2.ZERO, lerpf(7.0, 20.0, 1.0 - t), 0.0, TAU, 20, Color(1.0, 0.55, 0.3, t), 2.0)
 
 ## 렌더 색: 유전 hue(계보) + 에너지로 채도/명도 변조(배고프면 칙칙·어둡게 — 가독성 기법6).
 func body_color() -> Color:
@@ -150,6 +165,10 @@ func trait_color() -> Color:
 
 func get_brain() -> MindNet:
 	return _brain
+
+## 진단(World): 포식자를 직접 못 봤는데 경보로 반응 중인가(사회적 전파 작동 지표).
+func is_alarm_reacting() -> bool:
+	return _alarm_reacting
 
 ## 포식자가 호출. 아직 살아있으면 잡아챈다(true). 이미 죽었거나 잡혔으면 false.
 ## true를 받은 포식자만 사냥 성공으로 처리한다(중복 포획·이중 집계 방지).
@@ -180,6 +199,20 @@ func _physics_process(delta: float) -> void:
 	_last_out = out
 	# 위험 잔상(생각 한 줄용): 포식자가 가까우면 즉시 차오르고, 멀어지면 천천히 잊는다(~3초).
 	_danger_memory = maxf(inputs[BrainBuilder.IN_PRED_NEAR], _danger_memory - delta * 0.35)
+
+	# 위험 경보 방출(소통): 포식자를 '직접' 임계 이상으로 보면 자기 위치에 경보를 남긴다.
+	# 발신은 직접 시야에만 의존(경보 듣고 재방출하는 폭주 차단). 쿨다운으로 매 틱 도배 방지.
+	_alarm_cooldown = maxf(0.0, _alarm_cooldown - delta)
+	if _world != null and inputs[BrainBuilder.IN_PRED_NEAR] >= _world.alarm_emit_threshold \
+			and _alarm_cooldown <= 0.0:
+		_world.emit_alarm(position, inputs[BrainBuilder.IN_PRED_NEAR])
+		_alarm_cooldown = _world.alarm_emit_cooldown
+		_alarm_flash = alarm_cue_duration
+		queue_redraw()
+	# 발신 고리: 표시 중이면 매 프레임 다시 그린다(짧고, 방출한 개체만 — 비용 제한적).
+	if _alarm_flash > 0.0:
+		_alarm_flash = maxf(0.0, _alarm_flash - delta)
+		queue_redraw()
 
 	_want_eat = out[BrainBuilder.OUT_EAT] > 0.0
 	_try_eat()  # 겹친 먹이를 매 틱 확인해 먹는다(엣지 트리거 함정 방지 — 먹이 앞 떪의 주원인)
@@ -325,11 +358,23 @@ func _sense() -> Array:
 			refuge_near = 1.0 - clampf(rd / sense_radius, 0.0, 1.0)
 		_sheltered = _world.is_sheltered(position)
 
-	# 위협-게이팅(상충 압력 핵심): 위협도 threat=pred_near(거리기반 0~1).
+	# 위험 경보(소통) 센서: 가장 강한 '들리는 경보'의 방향+강도. 다른 개체가 위협을 보고 방출한 신호다.
+	# 방향은 강도로 스케일해 입력 → 약한 경보=약한 반응. 본능 ⑤가 '경보에서 멀어짐'으로 쓴다.
+	var alarm_dir := Vector2.ZERO
+	var alarm_intensity: float = 0.0
+	if _world != null:
+		var al: Dictionary = _world.hear_alarm(position)
+		alarm_intensity = al.intensity
+		alarm_dir = al.dir * alarm_intensity
+
+	# 위협-게이팅(상충 압력 핵심): 위협도 = max(직접 포식자 근접도, 경보강도×반응배율).
+	# → 포식자를 직접 못 봐도 '경보'만으로 안전지대로 도망/먹이 중단(사회적 전파).
 	# - 안전지대 끌림: 평소 거의 0(refuge_calm_pull), 위협 시 강하게(+threat×refuge_threat_gain) → 먹이를 압도.
 	# - 먹이 끌림: 위협 시 누른다(공포가 허기를 누름) → '먹이vs안전 줄다리기'를 막는다.
-	# 방향벡터(dir)에 곱해 '이동 본능'에 직접 작용(본능 가중치는 진화 가능 상태로 보존). near도 같이 조절(생각/도착 일관).
-	var threat: float = pred_near
+	# 방향벡터(dir)에 곱해 '이동 본능'에 직접 작용(본능 가중치는 진화 가능 상태로 보존). near도 같이 조절.
+	var threat: float = maxf(pred_near, alarm_intensity * alarm_react_strength)
+	# 진단/생각: 포식자를 '직접' 못 봤는데(시야 밖) 경보로 위협을 느끼는 중인가.
+	_alarm_reacting = pred_near < 0.15 and alarm_intensity * alarm_react_strength > 0.2
 	var refuge_gain: float = refuge_calm_pull + threat * refuge_threat_gain
 	var food_gain: float = maxf(0.0, 1.0 - threat * fear_food_suppress)
 	food_dir *= food_gain
@@ -341,7 +386,8 @@ func _sense() -> Array:
 		kin_dir.x, kin_dir.y, density, age_norm,
 		pred_dir.x, pred_dir.y, pred_near,
 		wall_l, wall_c, wall_r,
-		refuge_dir.x, refuge_dir.y, refuge_near]
+		refuge_dir.x, refuge_dir.y, refuge_near,
+		alarm_dir.x, alarm_dir.y, alarm_intensity]
 
 ## 매 틱 호출: 지금 겹쳐 있는 먹이를 먹는다(겹침을 '상태'로 보고 지속 확인).
 ## 신경망의 "먹기" 출력이 양수일 때만 실제로 먹는다(먹기 시도 매핑은 유지).
@@ -406,6 +452,9 @@ func get_thought() -> String:
 		return "😨 포식자다, 도망쳐!"
 	if pred_near > 0.2:
 		return "😰 저쪽에 무서운 게 있어… 조심조심"
+	# 소통: 포식자를 직접 못 봤는데 경보를 듣고 반응 중 — '대화처럼' 보이게(LEGIBILITY).
+	if _alarm_reacting:
+		return "🗣️ 들었다, 도망!"
 	# 기억(순환 연결)이 진화한 개체만: 위험이 지나갔어도 잔상이 남아 잠시 경계한다(기억이 보이게).
 	if _brain != null and _brain.has_recurrent() and _danger_memory > 0.35:
 		return "🧠 아까 위험했어, 조심…"
