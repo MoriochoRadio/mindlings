@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://c3mindlingsworld"]
+[gd_scene load_steps=10 format=3 uid="uid://c3mindlingsworld"]
 
 [ext_resource type="Script" path="res://scripts/World.gd" id="1_world"]
 [ext_resource type="PackedScene" path="res://scenes/Creature.tscn" id="2_creature"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/FoodSource.tscn" id="6_foodsrc"]
 [ext_resource type="PackedScene" path="res://scenes/Refuge.tscn" id="7_refuge"]
 [ext_resource type="PackedScene" path="res://scenes/WaterPool.tscn" id="8_waterpool"]
+[ext_resource type="Script" path="res://scripts/bond_lines.gd" id="9_bondlines"]
 
 [node name="World" type="Node2D"]
 position = Vector2(40, 40)
@@ -24,6 +25,9 @@ water_pool_scene = ExtResource("8_waterpool")
 [node name="Waters" type="Node2D" parent="."]
 
 [node name="Refuges" type="Node2D" parent="."]
+
+[node name="BondLines" type="Node2D" parent="."]
+script = ExtResource("9_bondlines")
 
 [node name="Creatures" type="Node2D" parent="."]
 

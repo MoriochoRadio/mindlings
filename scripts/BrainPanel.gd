@@ -5,9 +5,9 @@ class_name BrainPanel
 ## 본격 실시간 그래프 시각화는 M5에서 확장한다.
 
 const NODE_R: float = 9.0
-# 높이는 입력 노드 수에 맞춰 잡는다(입력 24 + 편향 = 25행). 위쪽엔 이름·생각·상태(허기/갈증)·형질·경험 영역.
-const PANEL_SIZE: Vector2 = Vector2(344, 588)
-const NODES_TOP: float = 178.0  # 노드 그래프 시작 y(위쪽은 이름+생각+상태+허기/갈증+형질+경험 게이지 영역)
+# 높이는 입력 노드 수에 맞춰 잡는다(입력 24 + 편향 = 25행). 위쪽엔 이름·생각·상태·욕구·형질·경험·관계 영역.
+const PANEL_SIZE: Vector2 = Vector2(344, 612)
+const NODES_TOP: float = 202.0  # 노드 그래프 시작 y(위쪽은 이름+생각+상태+욕구+형질+경험+관계 영역)
 
 var _creature: Creature = null
 var _node_pos: Dictionary = {}   # node id -> 패널 로컬 좌표
@@ -106,13 +106,20 @@ func _draw() -> void:
 	_draw_gauge(Vector2(48, 133), 110.0, _creature.get_forage_skill(), Color(0.55, 0.85, 0.5), "먹이찾기", font)
 	_draw_gauge(Vector2(48, 144), 110.0, _creature.get_avoid_skill(), Color(0.95, 0.7, 0.4), "위험회피", font)
 
+	# 관계(사회의 심장 — 친한 캐릭터와 친밀도). 친구가 있으면 "토토 ❤️   미루 🙂", 없으면 안내.
+	draw_string(font, Vector2(12, 164), "관계", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.72, 0.78, 0.86))
+	var rel: String = _creature.get_relationship_summary()
+	if rel == "":
+		rel = "아직 친한 친구가 없어요"
+	draw_string(font, Vector2(48, 168), rel, HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 56, 13, Color(0.95, 0.85, 0.7))
+
 	# 구분선 + 아래는 '진짜 뇌'(고급 정보, 단계적 공개의 3층 자리).
-	draw_line(Vector2(12, 158), Vector2(PANEL_SIZE.x - 12, 158), Color(1, 1, 1, 0.10), 1.0)
-	draw_string(font, Vector2(12, 174), "이 아이의 진짜 뇌 (고급)",
+	draw_line(Vector2(12, 182), Vector2(PANEL_SIZE.x - 12, 182), Color(1, 1, 1, 0.10), 1.0)
+	draw_string(font, Vector2(12, 198), "이 아이의 진짜 뇌 (고급)",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.6, 0.68))
 	# 기억(순환) 연결 + '지금 강해지는 연결(노랑)' 안내 — '보이는 새 능력'(가독성×정교함).
 	if net.has_recurrent():
-		draw_string(font, Vector2(150, 174), "· 🧠 기억(보라 점선)",
+		draw_string(font, Vector2(150, 198), "· 🧠 기억(보라 점선)",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.80, 0.62, 1.0))
 
 	# 연결선: 신호(=출발 노드 활성 × 가중치) 부호로 색, 세기로 굵기·불투명도.
