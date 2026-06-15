@@ -10,10 +10,12 @@ class_name Predator
 ## 모든 수치는 @export로 노출해 튜닝 가능(설계 원칙: 튜닝 슬라이더).
 
 @export_group("이동/감각")
-## 이동 속도(px/s). 개체(기본 80)보다 약간 빠르게 — 단, 탐지 반경이 좁아 회피 여지가 있다.
-@export var move_speed: float = 92.0
-## 먹잇감을 인지·추적하는 반경(px). 개체 sense_radius(기본 220)보다 작게 둘 것(회피 진화 여지).
-@export var detect_radius: float = 170.0
+## 이동 속도(px/s). 개체(기본 80)보다 아주 약간만 빠르게 — '관리 가능한 위협'(정체성: 소수를 아끼며
+## 지켜보기). 빠른(작은) 개체는 따돌릴 수 있고, 잘 도망치면 살 여지가 분명하다. 도전은 🦅로 더 풀어 만든다.
+@export var move_speed: float = 84.0
+## 먹잇감을 인지·추적하는 반경(px). 개체 sense_radius(기본 220)보다 한참 작게 — 개체가 먼저 알아채고
+## 도망칠 여유를 준다(회피 진화·복귀의 핵심). 좁힐수록 매복이 덜 가혹해진다.
+@export var detect_radius: float = 145.0
 ## 회전 민첩성(높을수록 방향 전환이 빠름). 낮으면 급선회하는 먹잇감을 놓친다.
 @export var turn_rate: float = 6.0
 ## 먹잇감이 안 보일 때 먹이지대를 노릴지(0=순수 배회, >0=군락 매복 순찰 ON).
@@ -22,7 +24,7 @@ class_name Predator
 
 @export_subgroup("순찰/매복")
 ## 매복 지점이 군락 중심에서 떨어지는 거리(px). 중심에 박혀 공전하지 않게 가장자리에서 노린다.
-## detect_radius(170)가 군락(반경 ~90)을 덮으므로, 가장자리에 있어도 안쪽 먹잇감을 알아채 쫓는다.
+## detect_radius(145)가 군락(반경 ~90) 안쪽 일부만 덮어 — 매복해도 군락 전체를 장악하진 못한다(덜 가혹).
 @export var ambush_radius: float = 70.0
 ## 매복 지점 도착 판정 반경(px). 이 안에 들면 멈춰 매복한다(중심 오버슈트·공전 방지).
 @export var ambush_arrive_radius: float = 22.0

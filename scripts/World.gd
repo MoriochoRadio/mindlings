@@ -20,8 +20,9 @@ class_name World
 
 @export_group("포식자")
 @export var predator_scene: PackedScene
-## 플레이어가 풀 수 있는 포식자 절대 상한(소규모 세계에 맞춰 축소).
-@export var max_predators: int = 6
+## 플레이어가 풀 수 있는 포식자 절대 상한. 기본 세계는 '관리 가능한 위협'으로 낮게 둔다 — 한두 마리면
+## 충분히 긴장되고, 캐릭터가 숨기만 하다 굶지 않는다. 더 가혹한 도전은 플레이어가 🦅로 직접 만든다.
+@export var max_predators: int = 4
 
 @export_group("먹이 / 식물 군락")
 @export var food_scene: PackedScene
