@@ -53,11 +53,14 @@ class_name World
 @export_group("물 / 갈증")
 @export var water_pool_scene: PackedScene
 ## 시작 시 놓는 물웅덩이 수(먹이 군락과 떨어뜨려 '밥↔물 이동'을 만든다). 0이면 플레이어가 직접 놓는다.
-@export var initial_water_pools: int = 2
+## 먹이 군락(기본 3)보다 많게 둬 물 접근성을 충분히 — 물이 드물면 트렉 중 말라 만성 탈수·인구 붕괴.
+## 소수 인구가 갈증을 '오가며' 안정적으로 챙기려면 물웅덩이가 곳곳에 있어야 한다.
+@export var initial_water_pools: int = 5
 ## 플레이어가 놓을 수 있는 물웅덩이 절대 상한(소규모 세계).
 @export var max_water_pools: int = 8
-## 시작 물웅덩이 사이/군락과의 최소 간격(px) — 물과 밥이 한자리에 겹치지 않게(이동 트레이드오프 보존).
-@export var water_min_dist: float = 300.0
+## 시작 물웅덩이 사이/군락과의 최소 간격(px) — 물과 밥이 겹치지 않되(이동 트레이드오프 보존), 너무 멀어
+## 트렉 중 말라 죽지 않게 적당히. 작은 세계(1280×720)에 5개를 군락과 함께 배치하려면 과하지 않아야 한다.
+@export var water_min_dist: float = 200.0
 
 @export_group("소통 — 위험 경보")
 ## 개체가 '직접 본' 위협(포식자 근접도)이 이 이상이면 경보를 방출(0~1). 발신은 직접 시야에만
@@ -129,8 +132,9 @@ class_name World
 @export var learn_weight_clamp: float = 8.0
 ## 보상: 먹이 1에너지당 +(먹이찾기 강화).
 @export var eat_reward: float = 0.04
-## 보상: 물 1수분당 +(목마를 때 물 찾기 강화). 학습이 '밥과 물 사이 균형'을 다듬는 신호.
-@export var drink_reward: float = 0.03
+## 보상: 물 1수분당 +(목마를 때 물 찾기 강화). 먹이 보상(eat_reward)과 '대칭'으로 둔다 —
+## 빈 욕구를 가득 채울 때 얻는 총 보상이 밥≈물이 되게(한쪽 학습이 다른 쪽을 압도하지 않게).
+@export var drink_reward: float = 0.04
 ## 보상: 위협도 변화당(상승=벌, 하강=탈출 보상). 위험회피를 강화한다.
 @export var danger_reward: float = 0.6
 ## 보상: 굶주릴 때(에너지<20%) -(지금 행동을 약화해 다른 시도를 유도).

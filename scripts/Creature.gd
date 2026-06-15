@@ -26,14 +26,27 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var max_water: float = 100.0
 ## 시작 수분.
 @export var start_water: float = 80.0
-## 초당 수분 감소(갈증). 굶주림(energy_decay)과 독립 — 밥과 물을 따로 챙겨야 한다.
-@export var water_decay: float = 1.8
+## 초당 수분 감소(갈증). 굶주림(energy_decay≈2.6)과 '대칭'에 가깝게 둬 갈증이 의미 있게 쌓이게 한다
+## (옛 1.8보다 빠름). 단, 물웅덩이는 먹이보다 드물어 너무 빠르면 트렉 중에 말라 만성 탈수가 되므로,
+## 허기보다 낮춰 '오가며 챙길 수 있는' 수준으로 맞춘다(드문 물웅덩이까지 트렉할 여유 — 안 그러면
+## 소수 인구가 갈증 압박에 휘청여 붕괴한다). 옛 1.8보다는 빨라 갈증이 의미 있게 쌓인다.
+@export var water_decay: float = 2.0
 ## 물웅덩이에서 초당 마시는 양(빠른 회복 — 잠깐 들러 채우고 다시 먹이로). 가득이면 안 마신다.
 @export var water_drink_rate: float = 55.0
 ## 탈수 판정 기준(수분 비율). 이 아래로 마르면 에너지에 악영향(건강 악영향 — 굶주림과 별개 압력).
 @export_range(0.0, 1.0) var dehydration_threshold: float = 0.25
 ## 완전 탈수(수분 0) 시 초당 추가로 빠지는 에너지. 기준~0 사이는 비례. '목마르면 쇠약해진다'.
-@export var dehydration_energy_penalty: float = 3.0
+## 굶주림(굶으면 죽음)과 대칭으로 두되, 물 트렉 비용을 감안해 과하지 않게 — 물을 무시하면 손해가
+## 분명하되 죽음의 소용돌이는 안 되도록(너무 크면 목마른 채 트렉하다 굶어 죽어 소수 인구가 붕괴).
+@export var dehydration_energy_penalty: float = 4.0
+## 갈증 본능(반사) 세기: 목마르면 가장 가까운 물 쪽으로 향하는 '직접 드라이브'를 모터 출력에 섞는다.
+## 먹이는 흔해 늘 강화되지만 물은 드물어 학습/진화만으론 물 찾기가 약해진다 → 이 본능이 '목마르면 물로'를
+## 보장한다(브레인 위에 얹어, 진화·학습은 그 위에서 미세조정). 단, 너무 세면 먹이를 등져 굶으니 약하게.
+## 0이면 끔(순수 진화 비교용).
+@export var thirst_drive_strength: float = 0.8
+## 갈증 본능이 켜지기 시작하는 수분 수준(이 위면 0, 아래로 갈수록 강해짐). 적당히 목마르면(이 값 아래)
+## 잠깐 물을 챙기러 가되, 평소엔 먹이에 집중하게.
+@export_range(0.0, 1.0) var thirst_drive_comfort: float = 0.5
 
 @export_group("이동/감각")
 @export var move_speed: float = 80.0
@@ -58,6 +71,16 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 ## 무리 결집: 위협이 가까울수록 동족 끌림에 더해지는 양('안전은 수에 있다'). 평소엔 0(셀프게이팅) —
 ## 위협받을 때만 가까운 동족으로 향해 자연스레 무리가 형성된다. 진화·학습이 다듬음(겁많은 개체가 더 잘 뭉침 등).
 @export var herd_threat_gain: float = 1.5
+
+@export_subgroup("갈증 끌림(허기와 대칭)")
+## 갈증→물 끌림 곡선의 가파름. 먹이는 '늘 최대 강도'로 끌리는데(가까운 먹이 흔함) 물은 갈증에 비례라
+## 거의 마를 때까지 먹이에 밀린다 → 물을 안 찾는 원인. 이 값으로 적당히 목마르면 물 끌림이 먹이를
+## '넘어서서' 물 트렉을 택하게 한다(굶주림이 공포를 이기는 것과 대칭의 '갈증 우선'). 곡선 상한은
+## thirst_pull_max. 1.0=기존 선형. 2.0이면 갈증 0.5에서 먹이와 동급, 그 이상에선 먹이를 앞선다.
+@export var thirst_pull_gain: float = 2.2
+## 갈증 끌림의 상한(과도한 쏠림 방지). 1.0(=먹이 최대)보다 약간 크게 둬, 충분히 목마르면 물이 먹이를
+## 이기되 무한정 압도하진 않게. 너무 크면 늘 물만, 1.0이면 절대 못 이김(물 무시 재발).
+@export var thirst_pull_max: float = 1.5
 ## 허기가 공포를 이기는 정도(0=항상 공포 우선, 1=굶주리면 공포 거의 무시). '굶을수록 위험을 무릅쓴다'.
 ## 굶주릴수록 위협-게이팅을 완화 → 먹이 본능이 살아나고 안전지대 끌림이 약해져, 굶어죽기 전 절박하게 채집.
 ## 안전지대가 죽음의 함정이 되지 않게 하는 동적 트레이드오프(생애학습이 이 균형을 다듬는다).
@@ -282,6 +305,16 @@ func _physics_process(delta: float) -> void:
 		var food_near: float = _last_sense[BrainBuilder.IN_FOOD_NEAR]
 		if food_near > 0.8:
 			speed *= lerpf(1.0, 1.0 - arrival_damping, clampf((food_near - 0.8) / 0.2, 0.0, 1.0))
+		# 갈증 본능(반사): 물이 comfort 아래로 마르면 가장 가까운 물 쪽으로 향하는 직접 드라이브를 섞는다.
+		# 진화로 사라지지 않는 생존 본능 — 먹이(흔함)와 달리 물(드묾)은 학습만으론 약해 '목마르면 물로'를 보장.
+		# 목마를수록(아래로 갈수록) 강하고, 충분히 마시면 0. 브레인 출력 위에 얹어 진화·학습이 미세조정.
+		if thirst_drive_strength > 0.0 and _water_target != null and is_instance_valid(_water_target):
+			var wn: float = water / max_water if max_water > 0.0 else 1.0
+			var urge: float = clampf((thirst_drive_comfort - wn) / maxf(0.01, thirst_drive_comfort), 0.0, 1.0)
+			if urge > 0.0:
+				var to_water: Vector2 = _water_target.position - position
+				if to_water.length() > 0.001:
+					_drive = (_drive + to_water.normalized() * urge * thirst_drive_strength).limit_length(1.0)
 
 	# 경계 접선 슬라이드: 가장자리에서 바깥으로 향하면 미끄러지거나 안쪽으로 보정(박힘/아사 방지).
 	if _world != null:
@@ -444,7 +477,9 @@ func _sense() -> Array:
 			_at_water = (nearest_water as WaterPool).contains(position)
 	var water_norm: float = clampf(water / max_water, 0.0, 1.0) if max_water > 0.0 else 1.0
 	var thirst: float = 1.0 - water_norm
-	water_dir *= thirst  # 갈증 셀프게이팅: 목마를수록 물 끌림↑(평소엔 ~0). near는 정보로 그대로 둔다.
+	# 갈증 셀프게이팅(허기와 대칭): 목마를수록 물 끌림↑(평소엔 ~0). thirst_pull_gain으로 곡선을 가파르게 해
+	# 적당히 목마르면 먹이를 '넘어서서' 물 트렉을 택하게 하되, thirst_pull_max로 상한을 둬 과도한 쏠림은 막는다.
+	water_dir *= clampf(thirst * thirst_pull_gain, 0.0, thirst_pull_max)  # near는 정보로 그대로 둔다.
 
 	# 위협-게이팅(상충 압력 핵심): 위협도 = max(직접 포식자 근접도, 경보강도×반응배율).
 	# → 포식자를 직접 못 봐도 '경보'만으로 안전지대로 도망/먹이 중단(사회적 전파).
