@@ -3,8 +3,9 @@ class_name Food
 ## 먹이(식물 자원) — M1 버전.
 ## 맵에 주기적으로 스폰되고, 개체가 닿으면 소비되어 사라지며 에너지를 준다.
 
-## 먹었을 때 개체가 얻는 에너지량.
-@export var energy_value: float = 25.0
+## 먹었을 때 개체가 얻는 에너지량. 생존 다축화(물 욕구)로 채집 시간이 분산된 만큼 한 입의 영양을
+## 넉넉히 둬, 기본 세계에서 성체가 굶어죽는 기아 churn을 막는다(편안히 생존 가능 — 도전은 선택적).
+@export var energy_value: float = 35.0
 
 var _consumed: bool = false
 

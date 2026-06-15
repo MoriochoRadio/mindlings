@@ -19,7 +19,11 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var start_energy: float = 70.0
 ## 초당 에너지 감소(대사). 낮추면 오래 살아 인구↑. 너무 높으면 '늘 굶주려' 도망/은신할
 ## 여유가 없어 먹이 캠핑만 살아남는다(상충 압력 죽음). 약간의 여유를 줘 회피가 가능하게.
-@export var energy_decay: float = 2.6
+## (생존 다축화 이후) 물 욕구가 채집 시간을 나눠 쓰게 되면서 에너지 여유가 빠듯해져 성체가 굶어죽는
+## 기아 churn→간헐 전멸이 계측으로 확인됨. 물 부담을 상쇄하도록 대사를 낮춰 생존 여유를 회복한다.
+## 방향: 기본 세계는 '편안히 생존 가능'해야 한다(소수 캐릭터를 아끼는 게임). 굶주림 압박은 플레이어가
+## 도구로 거는 선택적 도전으로 — 기본값에선 상시 아사·전멸이 안 나게 넉넉히.
+@export var energy_decay: float = 2.0
 
 @export_group("수분/갈증")
 ## 수분 최대치(갈증 게이지의 상한). 에너지와 별개의 욕구.
@@ -639,7 +643,7 @@ func _try_drink(delta: float) -> void:
 func _learn(delta: float) -> void:
 	if _world == null or not _world.learning_enabled:
 		return
-	_brain.accumulate_eligibility(_world.eligibility_decay)
+	_brain.accumulate_eligibility(_world.eligibility_decay, _world.weight_homeostasis)
 	var pn: float = _last_sense[BrainBuilder.IN_PRED_NEAR] if _last_sense.size() > BrainBuilder.IN_PRED_NEAR else 0.0
 	var threat_delta: float = pn - _prev_pred_near
 	_prev_pred_near = pn

@@ -32,6 +32,8 @@ class NetConn:
 	var from_id: int
 	var to_id: int
 	var weight: float
+	var base: float           # 유전 기준선(태어날 때 물려받은/돌연변이된 값). 생애 학습은 여기서 '탄력적으로'
+	                          # 벗어났다 되돌아온다 → 아무리 오래 살아도 가중치가 클램프로 표류·포화되지 않게(안정화 핵심).
 	var enabled: bool
 	var recurrent: bool
 	var elig: float = 0.0     # 자격흔적(생애 학습) — 출생/복제 시 0에서 시작
@@ -40,6 +42,7 @@ class NetConn:
 		from_id = f
 		to_id = t
 		weight = w
+		base = w              # 생성 시 현재 가중치가 기준선(복제=물려받은 값, 돌연변이=새 값)
 		enabled = e
 		recurrent = r
 
@@ -144,13 +147,18 @@ func get_outputs() -> Array:
 ## propagate 직후 호출: 각 연결의 자격흔적을 갱신한다(elig = elig×decay + pre×post).
 ## '직전에 함께 활성화된' 연결에 신용을 쌓아, 잠시 뒤 보상이 오면 그 연결을 강화/약화한다(3-factor Hebbian).
 ## last_dw는 천천히 식혀 '지금 강해지는 연결' 하이라이트가 부드럽게 사라지게 한다.
-func accumulate_eligibility(decay: float) -> void:
+## weight_homeostasis(>0): 매 틱 가중치를 유전 기준선(base)으로 '탄력적으로' 끌어당긴다(weight -= h×(weight-base)).
+## 생애 학습이 만든 일시적 이탈은 강화가 멈추면 기준선으로 풀려난다 → 오래 산 개체도 가중치가 클램프로
+## 포화·표류해 행동이 망가지는 일이 없다(계측으로 확인된 전멸 원인의 근본 차단). 학습 자체는 그대로 유지.
+func accumulate_eligibility(decay: float, weight_homeostasis: float = 0.0) -> void:
 	for c in connections:
 		if not c.enabled:
 			continue
 		var pre: float = nodes[c.from_id].prev if c.recurrent else nodes[c.from_id].value
 		c.elig = c.elig * decay + pre * nodes[c.to_id].value
 		c.last_dw *= 0.8
+		if weight_homeostasis > 0.0:
+			c.weight -= weight_homeostasis * (c.weight - c.base)
 
 ## 보상 r로 학습: weight += lr×r×elig, 가중치 클램프(폭주 방지). 변화 총량(|dw| 합)을 반환(가독성).
 ## r=0이면 변화 없음(희소 보상). lr은 호출부가 (기본 학습률 × 유전 가소성)로 넣는다.
@@ -197,6 +205,7 @@ func mutate(weight_rate: float, perturb: float, replace_chance: float,
 				c.weight = randf_range(-1.0, 1.0)
 			else:
 				c.weight = clampf(c.weight + randf_range(-perturb, perturb), -8.0, 8.0)
+			c.base = c.weight  # 돌연변이된 값이 새 유전 기준선(생애 학습은 여기서 다시 탄력 이탈)
 	if randf() < add_conn_chance:
 		_mutate_add_connection()
 	if randf() < add_recurrent_chance:
