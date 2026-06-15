@@ -5,9 +5,9 @@ class_name BrainPanel
 ## 본격 실시간 그래프 시각화는 M5에서 확장한다.
 
 const NODE_R: float = 9.0
-# 높이는 입력 노드 수에 맞춰 잡는다(입력 20 + 편향 = 21행). 위쪽엔 이름·생각·상태·형질·경험 영역.
-const PANEL_SIZE: Vector2 = Vector2(344, 544)
-const NODES_TOP: float = 140.0  # 노드 그래프 시작 y(위쪽은 이름+생각+상태+형질+경험 게이지 영역)
+# 높이는 입력 노드 수에 맞춰 잡는다(입력 24 + 편향 = 25행). 위쪽엔 이름·생각·상태(허기/갈증)·형질·경험 영역.
+const PANEL_SIZE: Vector2 = Vector2(344, 588)
+const NODES_TOP: float = 178.0  # 노드 그래프 시작 y(위쪽은 이름+생각+상태+허기/갈증+형질+경험 게이지 영역)
 
 var _creature: Creature = null
 var _node_pos: Dictionary = {}   # node id -> 패널 로컬 좌표
@@ -84,10 +84,9 @@ func _draw() -> void:
 	# 생각(사람 말로 통역) — LEGIBILITY 기법1·3층 중 2층.
 	draw_string(font, Vector2(12, 50), _creature.get_thought(),
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 15, Color(0.96, 0.97, 1.0))
-	# 쉬운 상태(숫자 대신 의미). 배부름·나이·세대.
-	var fullness: int = int(round(_creature.energy / _creature.max_energy * 100.0))
+	# 쉬운 상태(숫자 대신 의미). 나이·세대(배부름은 아래 '허기' 게이지로 보여준다).
 	draw_string(font, Vector2(12, 70),
-		"배부름 %d%%   ·   %d세대째   ·   %.0f살" % [fullness, _creature.generation, _creature.age],
+		"%d세대째   ·   %.0f살" % [_creature.generation, _creature.age],
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 12, Color(0.72, 0.78, 0.86))
 	# 보이는 형질(크기·색·가소성) — 무리가 어떻게 갈라지는지 한눈에.
 	draw_string(font, Vector2(12, 88), "크기 %.2f   ·   색 계통   ·   가소성 %.2f" % [
@@ -95,18 +94,25 @@ func _draw() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 12, Color(0.72, 0.78, 0.86))
 	draw_circle(Vector2(PANEL_SIZE.x - 24, 84), 6.0, _creature.trait_color())
 
+	# 욕구 게이지(허기·갈증) — 두 생존 욕구를 한눈에(생존 다축화 1). 차면 좋고, 비면 위험.
+	var hunger_v: float = _creature.energy / _creature.max_energy if _creature.max_energy > 0.0 else 0.0
+	var thirst_v: float = _creature.water / _creature.max_water if _creature.max_water > 0.0 else 0.0
+	draw_string(font, Vector2(12, 110), "욕구", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.72, 0.78, 0.86))
+	_draw_gauge(Vector2(48, 103), 110.0, hunger_v, Color(0.55, 0.85, 0.5), "허기(배부름)", font)
+	_draw_gauge(Vector2(48, 114), 110.0, thirst_v, Color(0.42, 0.66, 0.98), "갈증(수분)", font)
+
 	# 경험/숙련 게이지(생애 학습이 눈에 보이게 — 나이와 함께 오른다).
-	draw_string(font, Vector2(12, 106), "경험", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.72, 0.78, 0.86))
-	_draw_gauge(Vector2(48, 99), 110.0, _creature.get_forage_skill(), Color(0.55, 0.85, 0.5), "먹이찾기", font)
-	_draw_gauge(Vector2(48, 110), 110.0, _creature.get_avoid_skill(), Color(0.95, 0.7, 0.4), "위험회피", font)
+	draw_string(font, Vector2(12, 140), "경험", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.72, 0.78, 0.86))
+	_draw_gauge(Vector2(48, 133), 110.0, _creature.get_forage_skill(), Color(0.55, 0.85, 0.5), "먹이찾기", font)
+	_draw_gauge(Vector2(48, 144), 110.0, _creature.get_avoid_skill(), Color(0.95, 0.7, 0.4), "위험회피", font)
 
 	# 구분선 + 아래는 '진짜 뇌'(고급 정보, 단계적 공개의 3층 자리).
-	draw_line(Vector2(12, 120), Vector2(PANEL_SIZE.x - 12, 120), Color(1, 1, 1, 0.10), 1.0)
-	draw_string(font, Vector2(12, 136), "이 아이의 진짜 뇌 (고급)",
+	draw_line(Vector2(12, 158), Vector2(PANEL_SIZE.x - 12, 158), Color(1, 1, 1, 0.10), 1.0)
+	draw_string(font, Vector2(12, 174), "이 아이의 진짜 뇌 (고급)",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.6, 0.68))
 	# 기억(순환) 연결 + '지금 강해지는 연결(노랑)' 안내 — '보이는 새 능력'(가독성×정교함).
 	if net.has_recurrent():
-		draw_string(font, Vector2(150, 136), "· 🧠 기억(보라 점선)",
+		draw_string(font, Vector2(150, 174), "· 🧠 기억(보라 점선)",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.80, 0.62, 1.0))
 
 	# 연결선: 신호(=출발 노드 활성 × 가중치) 부호로 색, 세기로 굵기·불투명도.

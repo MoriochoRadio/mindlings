@@ -8,7 +8,7 @@ extends RefCounted
 ## 창시자에게만 약한 본능(bias_strength)을 줘 콜드스타트 멸종을 막는다.
 ## bias_strength=0 이면 창시자도 완전 무작위 — 순수 진화를 보고 싶을 때.
 
-const SENSOR_COUNT: int = 20
+const SENSOR_COUNT: int = 24
 const OUTPUT_COUNT: int = 3
 
 # 센서(입력) 인덱스 — Creature.INPUT_LABELS / _sense() 순서와 일치해야 한다.
@@ -44,6 +44,13 @@ const IN_REFUGE_NEAR: int = 16
 const IN_ALARM_X: int = 17
 const IN_ALARM_Y: int = 18
 const IN_ALARM_NEAR: int = 19
+# 물웅덩이(갈증) 센서 — 생존 다축화 1. 가장 가까운 물의 방향(단위벡터, 갈증으로 셀프게이팅)+근접도.
+# IN_THIRST = 갈증도(0=충분, 1=바싹 마름). 출력은 새로 안 만든다 — 기존 이동 출력으로 '물 찾기'가 진화.
+# 본능 ⑥(갈증 높을 때 물로 향함)은 창시자에 약하게 심고, 진화·학습이 '밥과 물 사이 균형'을 다듬는다.
+const IN_WATER_X: int = 20
+const IN_WATER_Y: int = 21
+const IN_WATER_NEAR: int = 22
+const IN_THIRST: int = 23
 
 # 출력 인덱스 — Creature.OUTPUT_LABELS 순서와 일치해야 한다.
 const OUT_MOVE_X: int = 0
@@ -95,6 +102,9 @@ static func build(instinct_strength: float = 0.6, instinct_variation: float = 0.
 		# ⑤ 경보에서 멀어짐(경보 센서 → 반대 방향, 음수). 경보 없으면 입력 0 → '들릴 때만' 작동(사회적 도망).
 		net.add_connection(IN_ALARM_X, _OUT_BASE + OUT_MOVE_X, -_instinct(0.7, 1.2, s, v))
 		net.add_connection(IN_ALARM_Y, _OUT_BASE + OUT_MOVE_Y, -_instinct(0.7, 1.2, s, v))
+		# ⑥ 물로 향함(물 센서 → 그쪽, 양수). water_dir는 _sense에서 갈증으로 게이팅돼 '목마를 때만' 끌린다.
+		net.add_connection(IN_WATER_X, _OUT_BASE + OUT_MOVE_X, _instinct(0.7, 1.2, s, v))
+		net.add_connection(IN_WATER_Y, _OUT_BASE + OUT_MOVE_Y, _instinct(0.7, 1.2, s, v))
 
 	net.compile()
 	return net

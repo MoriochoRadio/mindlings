@@ -14,6 +14,7 @@ const TOOLS: Array = [
 	{"id": GodTools.Tool.WALL, "label": "🧱 지형", "key": KEY_5, "hint": "5"},
 	{"id": GodTools.Tool.LIFE, "label": "✨ 생명", "key": KEY_6, "hint": "6"},
 	{"id": GodTools.Tool.REFUGE, "label": "🏠 안전지대", "key": KEY_7, "hint": "7"},
+	{"id": GodTools.Tool.WATER, "label": "💧 물웅덩이", "key": KEY_8, "hint": "8"},
 ]
 
 var _buttons: Array[Button] = []

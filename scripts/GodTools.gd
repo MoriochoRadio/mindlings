@@ -7,7 +7,7 @@ class_name GodTools
 ## 캐주얼 우선(LEGIBILITY_UX 2장): 큰 클릭 영역, 쿨다운·자원 없음, 누르면 즉시 반응.
 ## 손맛(FUN_DESIGN 2장 ①): 먹이가 즉시 생기고(DropEffect) 근처 개체가 그쪽으로 모여든다.
 
-enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL, LIFE, REFUGE }
+enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL, LIFE, REFUGE, WATER }
 
 @export_group("먹이 / 식물 군락")
 ## 드래그로 식물 군락을 심을 때 간격(px). 너무 빽빽하지 않게.
@@ -35,12 +35,17 @@ enum Tool { OBSERVE, FOOD, ERASE, PREDATOR, WALL, LIFE, REFUGE }
 ## 드래그로 안전지대를 놓을 때 간격(px). 은신처는 크니 넉넉히 띄운다.
 @export var refuge_step: float = 90.0
 
+@export_group("물웅덩이")
+## 드래그로 물웅덩이를 놓을 때 간격(px). 웅덩이는 크니 넉넉히 띄운다.
+@export var water_step: float = 90.0
+
 const _FOOD_COLOR := Color(0.55, 0.9, 0.6)
 const _ERASE_COLOR := Color(0.95, 0.55, 0.45)
 const _PRED_COLOR := Color(0.85, 0.35, 0.38)
 const _WALL_COLOR := Color(0.62, 0.58, 0.7)
 const _LIFE_COLOR := Color(1.0, 0.92, 0.62)  # 따뜻한 반짝임
 const _REFUGE_COLOR := Color(0.45, 0.82, 0.85)  # 안전한 청록빛
+const _WATER_COLOR := Color(0.45, 0.68, 1.0)    # 맑은 물빛
 
 var _tool: int = Tool.OBSERVE
 var _painting: bool = false      # 좌버튼으로 현재 도구를 칠하는 중
@@ -94,6 +99,8 @@ func _step_for(tool_id: int) -> float:
 			return food_source_step
 		Tool.REFUGE:
 			return refuge_step
+		Tool.WATER:
+			return water_step
 	return paint_step
 
 func _apply(tool_id: int, pos: Vector2) -> void:
@@ -114,6 +121,8 @@ func _apply(tool_id: int, pos: Vector2) -> void:
 			_spawn_life(pos)
 		Tool.REFUGE:
 			_plant_refuge(pos)
+		Tool.WATER:
+			_plant_water(pos)
 	_last_paint = pos
 
 ## 🍃 먹이 도구: 그 자리에 식물 군락을 심는다(드래그로 여러 개). 군락이 즉시 먹이를 채운다(손맛).
@@ -130,6 +139,7 @@ func _erase(pos: Vector2) -> void:
 	var hit: bool = _world.remove_food_near(pos, erase_radius) > 0
 	hit = _world.remove_food_sources_near(pos, erase_radius) > 0 or hit
 	hit = _world.remove_refuges_near(pos, erase_radius) > 0 or hit
+	hit = _world.remove_waters_near(pos, erase_radius) > 0 or hit
 	hit = _world.erase_wall(pos, erase_radius) or hit
 	if hit:
 		_spawn_effect(pos, erase_radius, _ERASE_COLOR)
@@ -161,6 +171,13 @@ func _plant_refuge(pos: Vector2) -> void:
 		return
 	if _world.spawn_refuge_at(pos):
 		_spawn_effect(pos, 44.0, _REFUGE_COLOR)
+
+## 💧 물웅덩이 도구: 그 자리에 물웅덩이를 놓는다(드래그로 여러 개). 등장은 물빛 고리로 은은하게.
+func _plant_water(pos: Vector2) -> void:
+	if _world == null:
+		return
+	if _world.spawn_water_pool_at(pos):
+		_spawn_effect(pos, 44.0, _WATER_COLOR)
 
 func _spawn_effect(pos: Vector2, radius: float, color: Color) -> void:
 	var fx := DropEffect.new()

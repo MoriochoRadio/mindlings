@@ -49,6 +49,15 @@ class_name World
 ## 진입 차단 시 포식자를 안전지대 경계에서 이만큼(px) 바깥에 막는다(경계에 딱 붙지 않게).
 @export var predator_block_margin: float = 6.0
 
+@export_group("물 / 갈증")
+@export var water_pool_scene: PackedScene
+## 시작 시 놓는 물웅덩이 수(먹이 군락과 떨어뜨려 '밥↔물 이동'을 만든다). 0이면 플레이어가 직접 놓는다.
+@export var initial_water_pools: int = 2
+## 플레이어가 놓을 수 있는 물웅덩이 절대 상한(소규모 세계).
+@export var max_water_pools: int = 8
+## 시작 물웅덩이 사이/군락과의 최소 간격(px) — 물과 밥이 한자리에 겹치지 않게(이동 트레이드오프 보존).
+@export var water_min_dist: float = 300.0
+
 @export_group("소통 — 위험 경보")
 ## 개체가 '직접 본' 위협(포식자 근접도)이 이 이상이면 경보를 방출(0~1). 발신은 직접 시야에만
 ## 의존 — 경보를 듣고 또 방출하는 무한 피드백(폭주)을 원천 차단.
@@ -119,6 +128,8 @@ class_name World
 @export var learn_weight_clamp: float = 8.0
 ## 보상: 먹이 1에너지당 +(먹이찾기 강화).
 @export var eat_reward: float = 0.04
+## 보상: 물 1수분당 +(목마를 때 물 찾기 강화). 학습이 '밥과 물 사이 균형'을 다듬는 신호.
+@export var drink_reward: float = 0.03
 ## 보상: 위협도 변화당(상승=벌, 하강=탈출 보상). 위험회피를 강화한다.
 @export var danger_reward: float = 0.6
 ## 보상: 굶주릴 때(에너지<20%) -(지금 행동을 약화해 다른 시도를 유도).
@@ -149,6 +160,7 @@ class_name World
 @onready var _food: Node2D = $Food
 @onready var _food_sources: Node2D = $FoodSources
 @onready var _refuges: Node2D = $Refuges
+@onready var _waters: Node2D = $Waters
 @onready var _predators: Node2D = $Predators
 
 var _bounds: Rect2 = Rect2()
@@ -230,6 +242,9 @@ func _spawn_initial() -> void:
 	# 안전지대를 한두 개 둔다 — 기본은 먹이 군락 '근처'에(피신=굶기가 아니게).
 	for i in initial_refuges:
 		_spawn_refuge(_refuge_start_point())
+	# 물웅덩이를 몇 개 둔다 — 군락·서로와 간격을 둬 '밥↔물 사이 이동'이 생기게(거부 샘플링).
+	for i in initial_water_pools:
+		_spawn_water_pool(_water_start_point())
 	# 개체는 군락 근처에서 시작 — 초반 대량 아사 방지(즉시 멸종 안 나게).
 	for i in initial_creatures:
 		_spawn_creature(_creature_start_point())
@@ -267,6 +282,27 @@ func _refuge_start_point() -> Vector2:
 			if p.distance_squared_to(r.position) < min_d2:
 				ok = false
 				break
+		if ok:
+			return p
+	return p
+
+## 시작 물웅덩이 위치: 기존 물웅덩이 '그리고' 먹이 군락 모두와 water_min_dist 이상 떨어진 점을
+## 거부 샘플링. 물과 밥이 한자리에 겹치지 않아야 '밥↔물 이동' 트레이드오프가 산다. 못 찾으면 마지막 후보.
+func _water_start_point() -> Vector2:
+	var min_d2: float = water_min_dist * water_min_dist
+	var p: Vector2 = _random_point()
+	for _try in 24:
+		p = _random_point()
+		var ok: bool = true
+		for w in _waters.get_children():
+			if p.distance_squared_to(w.position) < min_d2:
+				ok = false
+				break
+		if ok:
+			for s in _food_sources.get_children():
+				if p.distance_squared_to(s.position) < min_d2:
+					ok = false
+					break
 		if ok:
 			return p
 	return p
@@ -530,6 +566,35 @@ func remove_refuges_near(local_pos: Vector2, radius: float) -> int:
 ## 개체가 안전지대 센서로 가장 가까운 은신처를 훑을 때 사용(매 틱). 은신처는 소수라 직접 순회.
 func get_refuge_nodes() -> Array:
 	return _refuges.get_children()
+
+## 💧 물웅덩이 도구: 그 자리에 물웅덩이를 놓는다(드래그로 여러 개). 상한에 걸리면 false.
+func spawn_water_pool_at(local_pos: Vector2) -> bool:
+	if water_pool_scene == null or _waters.get_child_count() >= max_water_pools:
+		return false
+	_spawn_water_pool(local_pos.clamp(_bounds.position, _bounds.end))
+	return true
+
+func _spawn_water_pool(pos: Vector2) -> void:
+	if water_pool_scene == null:
+		return
+	var w: WaterPool = water_pool_scene.instantiate()
+	w.position = pos
+	w.setup(self)
+	_waters.add_child(w)
+
+## 보조 모드: 반경 안의 물웅덩이를 제거(지우개/우클릭). 지운 개수를 반환.
+func remove_waters_near(local_pos: Vector2, radius: float) -> int:
+	var r2: float = radius * radius
+	var removed: int = 0
+	for w in _waters.get_children():
+		if local_pos.distance_squared_to(w.position) <= r2:
+			w.queue_free()
+			removed += 1
+	return removed
+
+## 개체가 갈증 센서로 가장 가까운 물웅덩이를 훑을 때 사용(매 틱). 물은 소수라 직접 순회.
+func get_water_nodes() -> Array:
+	return _waters.get_children()
 
 # ── 위험 경보(소통 1단계) ─────────────────────────────────────────
 ## 개체가 위협을 직접 보면 호출(Creature). 자기 위치에 경보를 남긴다(시간 감쇠로 잠깐 존재).
