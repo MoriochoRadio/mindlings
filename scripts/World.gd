@@ -517,6 +517,38 @@ func count_creatures_near(center: Vector2, radius: float) -> int:
 			n += 1
 	return n
 
+## 생활권/복귀용: pos에서 가장 가까운 '먹이 군락' 중심(없으면 INF). 자원은 소수라 직접 순회.
+func nearest_food_point(pos: Vector2) -> Vector2:
+	var best: Vector2 = Vector2.INF
+	var bd: float = INF
+	for s in _food_sources.get_children():
+		var d: float = pos.distance_squared_to(s.position)
+		if d < bd:
+			bd = d
+			best = s.position
+	return best
+
+## 생활권/복귀용: pos에서 가장 가까운 물웅덩이 중심(없으면 INF).
+func nearest_water_point(pos: Vector2) -> Vector2:
+	var best: Vector2 = Vector2.INF
+	var bd: float = INF
+	for w in _waters.get_children():
+		var d: float = pos.distance_squared_to(w.position)
+		if d < bd:
+			bd = d
+			best = w.position
+	return best
+
+## 생활권 앵커: 먹이 군락·물웅덩이 중 '가장 가까운 자원' 중심(없으면 INF). 캐릭터가 이 반경 안에 머물게 하는 기준.
+func nearest_resource_point(pos: Vector2) -> Vector2:
+	var f: Vector2 = nearest_food_point(pos)
+	var w: Vector2 = nearest_water_point(pos)
+	if f == Vector2.INF:
+		return w
+	if w == Vector2.INF:
+		return f
+	return f if pos.distance_squared_to(f) <= pos.distance_squared_to(w) else w
+
 ## 군락 용량 판정용: 중심 반경 안의 먹이 수(먹이 수가 적어 직접 순회 — 그리드 프레임 staleness 회피).
 func count_food_near(center: Vector2, radius: float) -> int:
 	var r2: float = radius * radius

@@ -125,6 +125,13 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var content_keep_radius: float = 72.0
 ## 만족 상태에서 자원으로 완만히 다가갈 때의 속도 배율(작게 — 한가로이 모이는 느낌, 전속 추격 아님).
 @export_range(0.0, 1.0) var content_drift: float = 0.4
+## 생활권(home range): 가장 가까운 자원(먹이 군락/물웅덩이)에서 이 거리(px)를 넘어가면 무엇을 하던
+## 무조건 자원으로 복귀한다 — 사교(친구 따라가기)·편향 표류가 캐릭터를 자원에서 위험하게 멀어지게(굶/탈수사)
+## 두지 않는 '생존 안전망'의 핵심. 자원이 흩어진 간격(군락 ~260, 물 ~200)을 넘나들 만큼은 넉넉히.
+@export var home_range: float = 260.0
+## 허기/갈증이 이 수준 아래로 떨어지면 어떤 만족-상태 행동(친구 곁 모임 등)도 멈추고 즉시 자원으로 복귀한다
+## (굶/탈수사 한참 전 반드시 복귀). content_need_level보다 낮게: 그 사이는 평소 채집, 아래로는 강제 복귀.
+@export_range(0.0, 1.0) var need_reassert_level: float = 0.35
 
 @export_group("끼임 방지")
 ## 이 시간(초) 동안 거의 못 움직이면 '끼임'으로 보고 열린 쪽으로 밀어낸다.
@@ -350,30 +357,45 @@ func _physics_process(delta: float) -> void:
 				if to_water.length() > 0.001:
 					_drive = (_drive + to_water.normalized() * urge * thirst_drive_strength).limit_length(1.0)
 
-		# 만족 안정화(표류 사망 방지): 두 욕구가 모두 충분하고 위험이 없으면, 신경망 편향이 남기는 잔여
-		# 드라이브로 구석으로 흘러가지 않게 가장 가까운 자원(먹이 우선) 곁에 머문다. 멀면 완만히 다가가고,
-		# 가까우면 거의 멈춰 쉰다 → '물 마신 뒤 구석으로 떠나 죽는' 현상 제거(자원 근처에서 생활 지속).
-		var en: float = energy / max_energy if max_energy > 0.0 else 0.0
-		var wn2: float = water / max_water if max_water > 0.0 else 1.0
-		if en > content_need_level and wn2 > content_need_level \
-				and _last_sense[BrainBuilder.IN_PRED_NEAR] < 0.2:
-			# 친구 곁 선호: 만족 상태에선 가까운 친구에게로 모인다(없으면 자원 곁에 머문다) → 친구끼리 어울림.
-			var home: Node2D = null
-			if _near_friend != null and is_instance_valid(_near_friend):
-				home = _near_friend
-			elif _food_target != null and is_instance_valid(_food_target):
-				home = _food_target
-			else:
-				home = _water_target
-			if home != null and is_instance_valid(home):
-				var to_home: Vector2 = home.position - position
-				var hd: float = to_home.length()
-				if hd > content_keep_radius:
-					_drive = to_home / hd * content_drift  # 한가로이 자원 쪽으로 모인다
+		# ── 생존 우선 + 생활권(home range) + 만족 사교: 단일 우선순위로 충돌 제거(표류·구석 사망 근본 차단) ──
+		# 위협이 가까우면 브레인 회피/도망이 우선이라 안정화는 건너뛴다. 우선순위는 위에서 아래로:
+		# (1) 생활권 이탈 → 무조건 자원 복귀  (2) 욕구 임계 미만 → 즉시 자원 복귀  (3) 만족 → 친구 곁(생활권 내).
+		if _world != null and _last_sense[BrainBuilder.IN_PRED_NEAR] < 0.3:
+			var en: float = energy / max_energy if max_energy > 0.0 else 0.0
+			var wn2: float = water / max_water if max_water > 0.0 else 1.0
+			var anchor: Vector2 = _world.nearest_resource_point(position)
+			var adist: float = position.distance_to(anchor) if anchor != Vector2.INF else 0.0
+			if anchor != Vector2.INF and adist > home_range:
+				# (1) 생활권 이탈 — 무엇을 하던 무조건 자원으로 복귀(최우선 안전망). 사교·표류가 자원에서
+				#     위험하게 멀어지게 두지 않는다. 친구를 따라가다 여기 걸리면 '생활권 경계까지만' 간 셈이 된다.
+				_drive = (anchor - position) / adist
+			elif en < need_reassert_level or wn2 < need_reassert_level:
+				# (2) 욕구 재확립 — 허기·갈증 중 더 급한(더 비어있는) 쪽의 자원으로 결정적으로 복귀(굶/탈수사
+				#     한참 전 반드시 돌아온다). 생존 우선: 어떤 만족-상태 행동보다 위.
+				var water_more_urgent: bool = wn2 < need_reassert_level and (en >= need_reassert_level or wn2 <= en)
+				if water_more_urgent:
+					var wp: Vector2 = _world.nearest_water_point(position)
+					if wp != Vector2.INF:
+						_drive = (wp - position).normalized()
+				elif _food_target == null or not is_instance_valid(_food_target):
+					# 먹이는 '보이는 게 없을 때만' 강제 트렉 — 보이면 브레인 채집이 더 효율적이라 안 건드린다.
+					var fpt: Vector2 = _world.nearest_food_point(position)
+					if fpt != Vector2.INF:
+						_drive = (fpt - position).normalized()
+			elif en > content_need_level and wn2 > content_need_level:
+				# (3) 만족 + 생활권 내: 가까운 친구 곁으로 모이되(없으면 자원 곁), 생활권을 넘어가며 따라가진
+				#     않는다(다음 틱 (1) leash가 backstop) → 사교는 늘 자원 근처에서. 곁에 닿으면 거의 멈춰 쉰다.
+				var home: Node2D = _near_friend if (_near_friend != null and is_instance_valid(_near_friend)) \
+					else (_food_target if (_food_target != null and is_instance_valid(_food_target)) else _water_target)
+				if home != null and is_instance_valid(home):
+					var to_home: Vector2 = home.position - position
+					var hd: float = to_home.length()
+					if hd > content_keep_radius:
+						_drive = to_home / hd * content_drift
+					else:
+						_drive *= 0.12
 				else:
-					_drive *= 0.12                         # 자원 곁에서 거의 멈춰 쉰다(완만한 미동)
-			else:
-				_drive *= 0.12  # 자원이 안 보이면 표류를 멈춘다(구석 탈출은 _update_stuck 넛지가 담당)
+					_drive *= 0.12
 
 	# 경계 접선 슬라이드: 가장자리에서 바깥으로 향하면 미끄러지거나 안쪽으로 보정(박힘/아사 방지).
 	if _world != null:
@@ -749,9 +771,12 @@ func _update_stuck(delta: float) -> void:
 		var esc: Vector2 = Vector2.ZERO
 		if _world.has_walls():
 			esc = _world.open_direction(position, float(_world.wall_cell) * 2.0)
-		# 벽 탈출이 없고, 경계 구석에 박혔는데 곁에 자원도 없으면 → 맵 안쪽으로 넛지(표류 사망 방지).
+		# 벽 탈출이 없고, 경계 구석에 박혔는데 곁에 자원도 없으면 → 가장 가까운 '자원'으로 넛지(없으면 맵 안쪽).
+		# 생활권 leash와 함께, 구석에서 욕구가 오르는 캐릭터를 확실히 안쪽 자원으로 돌려보낸다(표류 사망 방지).
 		if esc == Vector2.ZERO and _near_boundary() and not _resource_within(content_keep_radius):
-			esc = (_bounds.get_center() - position).normalized()
+			var res: Vector2 = _world.nearest_resource_point(position)
+			var goal: Vector2 = res if res != Vector2.INF else _bounds.get_center()
+			esc = (goal - position).normalized()
 		if esc != Vector2.ZERO:
 			_nudge_dir = esc
 			_nudge_timer = nudge_duration
