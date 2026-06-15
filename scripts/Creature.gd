@@ -99,6 +99,15 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 ## 먹이에 거의 도착하면 속도를 줄여 정착(오버슈트 진동 방지). 0=감속 없음, 1=강하게.
 @export_range(0.0, 1.0) var arrival_damping: float = 0.82
 
+@export_subgroup("만족 안정화(표류 사망 방지)")
+## 두 욕구(허기·갈증)가 모두 이 비율을 넘고 위험이 없으면 '만족' 상태로 본다. 이때 신경망 편향(bias)이
+## 남기는 잔여 방향 드라이브로 구석으로 흘러가지 않게, 가장 가까운 자원 곁에 머무는 안정 행동으로 바꾼다.
+@export_range(0.0, 1.0) var content_need_level: float = 0.6
+## 만족 상태에서 자원에 이만큼(px) 안으로 들면 거의 멈춰 쉰다. 더 멀면 완만히 자원 쪽으로 모인다(머묾).
+@export var content_keep_radius: float = 72.0
+## 만족 상태에서 자원으로 완만히 다가갈 때의 속도 배율(작게 — 한가로이 모이는 느낌, 전속 추격 아님).
+@export_range(0.0, 1.0) var content_drift: float = 0.4
+
 @export_group("끼임 방지")
 ## 이 시간(초) 동안 거의 못 움직이면 '끼임'으로 보고 열린 쪽으로 밀어낸다.
 @export var stuck_check_interval: float = 1.0
@@ -315,6 +324,24 @@ func _physics_process(delta: float) -> void:
 				var to_water: Vector2 = _water_target.position - position
 				if to_water.length() > 0.001:
 					_drive = (_drive + to_water.normalized() * urge * thirst_drive_strength).limit_length(1.0)
+
+		# 만족 안정화(표류 사망 방지): 두 욕구가 모두 충분하고 위험이 없으면, 신경망 편향이 남기는 잔여
+		# 드라이브로 구석으로 흘러가지 않게 가장 가까운 자원(먹이 우선) 곁에 머문다. 멀면 완만히 다가가고,
+		# 가까우면 거의 멈춰 쉰다 → '물 마신 뒤 구석으로 떠나 죽는' 현상 제거(자원 근처에서 생활 지속).
+		var en: float = energy / max_energy if max_energy > 0.0 else 0.0
+		var wn2: float = water / max_water if max_water > 0.0 else 1.0
+		if en > content_need_level and wn2 > content_need_level \
+				and _last_sense[BrainBuilder.IN_PRED_NEAR] < 0.2:
+			var home: Node2D = _food_target if (_food_target != null and is_instance_valid(_food_target)) else _water_target
+			if home != null and is_instance_valid(home):
+				var to_home: Vector2 = home.position - position
+				var hd: float = to_home.length()
+				if hd > content_keep_radius:
+					_drive = to_home / hd * content_drift  # 한가로이 자원 쪽으로 모인다
+				else:
+					_drive *= 0.12                         # 자원 곁에서 거의 멈춰 쉰다(완만한 미동)
+			else:
+				_drive *= 0.12  # 자원이 안 보이면 표류를 멈춘다(구석 탈출은 _update_stuck 넛지가 담당)
 
 	# 경계 접선 슬라이드: 가장자리에서 바깥으로 향하면 미끄러지거나 안쪽으로 보정(박힘/아사 방지).
 	if _world != null:
@@ -597,10 +624,11 @@ func get_forage_skill() -> float:
 func get_avoid_skill() -> float:
 	return _avoid_skill
 
-## 끼임 감지: 벽이 있을 때, 일정 시간 거의 못 움직였고 주변이 막혀 있으면 열린 쪽으로 넛지 시작.
-## (모터 안정화 — 벽에 영구히 끼는 일을 없앤다. 열린 공간에서 쉬는 개체는 건드리지 않는다.)
+## 끼임 감지: 일정 시간 거의 못 움직였으면 빠져나올 방향으로 넛지 시작.
+## (1)벽에 끼면 열린 쪽으로(기존). (2)벽이 없어도 맵 '경계 구석'에 박혀 자원도 없으면 안쪽으로 — 표류해
+## 구석에 갇혀 죽는 것을 막는다. 자원 곁에서 쉬는(만족) 개체는 건드리지 않는다(곁에 자원 있으면 넛지 X).
 func _update_stuck(delta: float) -> void:
-	if _world == null or _nudge_timer > 0.0 or not _world.has_walls():
+	if _world == null or _nudge_timer > 0.0:
 		_stuck_accum = 0.0
 		_stuck_ref = position
 		return
@@ -608,12 +636,34 @@ func _update_stuck(delta: float) -> void:
 	if _stuck_accum < stuck_check_interval:
 		return
 	if position.distance_to(_stuck_ref) < stuck_min_move:
-		var esc: Vector2 = _world.open_direction(position, float(_world.wall_cell) * 2.0)
+		var esc: Vector2 = Vector2.ZERO
+		if _world.has_walls():
+			esc = _world.open_direction(position, float(_world.wall_cell) * 2.0)
+		# 벽 탈출이 없고, 경계 구석에 박혔는데 곁에 자원도 없으면 → 맵 안쪽으로 넛지(표류 사망 방지).
+		if esc == Vector2.ZERO and _near_boundary() and not _resource_within(content_keep_radius):
+			esc = (_bounds.get_center() - position).normalized()
 		if esc != Vector2.ZERO:
 			_nudge_dir = esc
 			_nudge_timer = nudge_duration
 	_stuck_ref = position
 	_stuck_accum = 0.0
+
+## 지금 맵 경계 가까이(여유 margin px)에 있는가 — 경계 구석 끼임 판정용.
+func _near_boundary() -> bool:
+	var m: float = 24.0
+	return position.x <= _bounds.position.x + m or position.x >= _bounds.end.x - m \
+		or position.y <= _bounds.position.y + m or position.y >= _bounds.end.y - m
+
+## 가장 가까운 먹이/물이 이 거리(px) 안에 있는가 — '자원 곁에 머무는' 개체를 끼임으로 오인해 넛지하지 않게.
+func _resource_within(dist: float) -> bool:
+	var d2: float = dist * dist
+	if _food_target != null and is_instance_valid(_food_target) \
+			and position.distance_squared_to(_food_target.position) < d2:
+		return true
+	if _water_target != null and is_instance_valid(_water_target) \
+			and position.distance_squared_to(_water_target.position) < d2:
+		return true
+	return false
 
 ## 성능: 위치/회전은 transform으로 처리되어 다시 그릴 필요가 없다. 색(에너지)만 바뀔 때 그린다.
 ## 에너지를 12단계로 양자화해, 단계가 바뀔 때만 queue_redraw(매 프레임 X → 200개 부담 제거).
