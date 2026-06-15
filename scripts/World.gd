@@ -172,6 +172,10 @@ var _alarms: Array = []          # [{pos: Vector2, strength: float}] — strengt
 var _alarm_toasted: bool = false # 무리 도망 토스트 1회 게이트(반응 수가 0으로 떨어지면 재무장)
 var _alarm_reacting_count: int = 0 # 캐시: 경보로만 반응 중인 개체 수(HUD/토스트 공용)
 
+# 무리 방어(쫓아내기) 토스트 도배 방지 쿨다운.
+const _HERD_REPEL_TOAST_COOLDOWN: float = 6.0
+var _herd_repel_cooldown: float = 0.0
+
 # 공간 분할 그리드(성능 — O(N²) 센싱 제거). 매 물리 틱 1회만 재구성(프레임 가드).
 # 셀좌표 Vector2i -> Array[Node2D]. 개체가 query하면 그 프레임 첫 호출이 그리드를 짓는다.
 var _grid_creatures: Dictionary = {}
@@ -368,6 +372,7 @@ func report_death(age: float) -> void:
 func _process(delta: float) -> void:
 	_accumulate_predator_stats(delta)
 	_check_extinction(delta)
+	_herd_repel_cooldown = maxf(0.0, _herd_repel_cooldown - delta)
 	_update_alarms(delta)
 	_evaluate_alarm_reactions()
 	_check_accum += delta
@@ -494,6 +499,16 @@ func pick_food_source_near(pos: Vector2, exclude: Vector2) -> Vector2:
 			bd_other = d
 			best_other = sp
 	return best_other if best_other != Vector2.INF else best_any
+
+## 무리 방어 판정용: 중심 반경 안의 개체 수(대상 개체 자신 포함). 개체가 소수(≤max_creatures)라
+## 직접 순회 — 그리드 staleness 회피. 포식자가 '무리=안전/쫓아내기'를 판정할 때 쓴다.
+func count_creatures_near(center: Vector2, radius: float) -> int:
+	var r2: float = radius * radius
+	var n: int = 0
+	for c in _creatures.get_children():
+		if center.distance_squared_to(c.position) <= r2:
+			n += 1
+	return n
 
 ## 군락 용량 판정용: 중심 반경 안의 먹이 수(먹이 수가 적어 직접 순회 — 그리드 프레임 staleness 회피).
 func count_food_near(center: Vector2, radius: float) -> int:
@@ -737,6 +752,14 @@ func report_predation(prey: Creature) -> void:
 ## 포식자가 굶어 죽었을 때 호출(현재는 통계 훅 자리 — 자기 균형의 신호).
 func report_predator_death() -> void:
 	pass
+
+## 포식자가 큰 무리에게 쫓겨났을 때 호출(Predator). 잠깐의 쿨다운으로 토스트 도배를 막는다.
+## '안전은 수에 있다'가 눈에 보이는 순간 — 뭉치기·함께 쫓아내기의 보상.
+func report_herd_repel() -> void:
+	if _herd_repel_cooldown > 0.0:
+		return
+	_herd_repel_cooldown = _HERD_REPEL_TOAST_COOLDOWN
+	_toast("🛡️ 무리가 뭉쳐 포식자를 쫓아냈어요!")
 
 # ── 공간 분할 그리드(성능) — 센싱을 O(N²)에서 근처 셀 조회로 ──────────────
 # 개체/포식자가 매 틱 호출하는 *_near(pos)가 그 프레임 첫 호출 때 그리드를 1회 짓는다(프레임 가드).

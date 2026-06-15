@@ -105,6 +105,10 @@ static func build(instinct_strength: float = 0.6, instinct_variation: float = 0.
 		# ⑥ 물로 향함(물 센서 → 그쪽, 양수). water_dir는 _sense에서 갈증으로 게이팅돼 '목마를 때만' 끌린다.
 		net.add_connection(IN_WATER_X, _OUT_BASE + OUT_MOVE_X, _instinct(0.7, 1.2, s, v))
 		net.add_connection(IN_WATER_Y, _OUT_BASE + OUT_MOVE_Y, _instinct(0.7, 1.2, s, v))
+		# ⑦ 무리 결집(동족 센서 → 그쪽, 양수). kin_dir는 _sense에서 위협으로 게이팅돼 '위협받을 때만' 뭉친다.
+		# '안전은 수에 있다' — 회피(②)·은신(③)에 더해 '뭉치기'라는 사회적 대응책. 진화·학습이 다듬는다.
+		net.add_connection(IN_KIN_X, _OUT_BASE + OUT_MOVE_X, _instinct(0.5, 0.9, s, v))
+		net.add_connection(IN_KIN_Y, _OUT_BASE + OUT_MOVE_Y, _instinct(0.5, 0.9, s, v))
 
 	net.compile()
 	return net

@@ -55,6 +55,9 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var refuge_threat_gain: float = 3.0
 ## 위협이 가까울수록 먹이 끌림을 누르는 정도(0=안 누름, 1=완전히). '공포가 허기를 누른다'.
 @export_range(0.0, 1.0) var fear_food_suppress: float = 0.7
+## 무리 결집: 위협이 가까울수록 동족 끌림에 더해지는 양('안전은 수에 있다'). 평소엔 0(셀프게이팅) —
+## 위협받을 때만 가까운 동족으로 향해 자연스레 무리가 형성된다. 진화·학습이 다듬음(겁많은 개체가 더 잘 뭉침 등).
+@export var herd_threat_gain: float = 1.5
 ## 허기가 공포를 이기는 정도(0=항상 공포 우선, 1=굶주리면 공포 거의 무시). '굶을수록 위험을 무릅쓴다'.
 ## 굶주릴수록 위협-게이팅을 완화 → 먹이 본능이 살아나고 안전지대 끌림이 약해져, 굶어죽기 전 절박하게 채집.
 ## 안전지대가 죽음의 함정이 되지 않게 하는 동적 트레이드오프(생애학습이 이 균형을 다듬는다).
@@ -463,6 +466,9 @@ func _sense() -> Array:
 	refuge_dir *= refuge_gain
 	food_near = clampf(food_near * food_gain, 0.0, 1.0)
 	refuge_near = clampf(refuge_near * refuge_gain, 0.0, 1.0)
+	# 무리 결집(셀프게이팅): 위협받을 때만 동족 방향 끌림이 켜진다 → 본능 ⑦이 '뭉치기'로 작동.
+	# gating_threat(허기로 완화된 위협)를 써, 굶주려 위험을 무릅쓸 땐 뭉침보다 채집을 택하게 일관성 유지.
+	kin_dir *= gating_threat * herd_threat_gain
 
 	return [food_dir.x, food_dir.y, food_near, energy_norm,
 		kin_dir.x, kin_dir.y, density, age_norm,
@@ -613,6 +619,9 @@ func get_thought() -> String:
 		if refuge_near > 0.2:
 			return "🏠 위험해, 숨자!"
 		return "😨 포식자다, 도망쳐!"
+	# 무리 결집: 위협 속에서 곁에 동족이 있으면 '뭉치자'는 생각(숨기뿐 아닌 사회적 대응 — 가독성).
+	if pred_near > 0.3 and density > 0.2:
+		return "🤝 다 같이 모이자!"
 	if pred_near > 0.2:
 		return "😰 저쪽에 무서운 게 있어… 조심조심"
 	# 소통: 포식자를 직접 못 봤는데 경보를 듣고 반응 중 — '대화처럼' 보이게(LEGIBILITY).
