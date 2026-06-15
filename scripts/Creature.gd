@@ -40,6 +40,10 @@ const OUTPUT_LABELS: Array[String] = ["이동x", "이동y", "먹기"]
 @export var refuge_threat_gain: float = 3.0
 ## 위협이 가까울수록 먹이 끌림을 누르는 정도(0=안 누름, 1=완전히). '공포가 허기를 누른다'.
 @export_range(0.0, 1.0) var fear_food_suppress: float = 0.7
+## 허기가 공포를 이기는 정도(0=항상 공포 우선, 1=굶주리면 공포 거의 무시). '굶을수록 위험을 무릅쓴다'.
+## 굶주릴수록 위협-게이팅을 완화 → 먹이 본능이 살아나고 안전지대 끌림이 약해져, 굶어죽기 전 절박하게 채집.
+## 안전지대가 죽음의 함정이 되지 않게 하는 동적 트레이드오프(생애학습이 이 균형을 다듬는다).
+@export_range(0.0, 1.0) var hunger_overrides_fear: float = 0.7
 
 @export_subgroup("소통 — 위험 경보 반응")
 ## 들은 경보를 '위협도'로 환산하는 배율 — 안전지대 게이팅을 경보로도 켠다(못 본 위험에 도망/은신).
@@ -392,8 +396,14 @@ func _sense() -> Array:
 	var threat: float = maxf(pred_near, alarm_intensity * alarm_react_strength)
 	# 진단/생각: 포식자를 '직접' 못 봤는데(시야 밖) 경보로 위협을 느끼는 중인가.
 	_alarm_reacting = pred_near < 0.15 and alarm_intensity * alarm_react_strength > 0.2
-	var refuge_gain: float = refuge_calm_pull + threat * refuge_threat_gain
-	var food_gain: float = maxf(0.0, 1.0 - threat * fear_food_suppress)
+	# 허기가 공포를 이긴다: 굶주릴수록(에너지 낮을수록) 게이팅에 쓰는 위협을 줄인다 → 절박한 채집.
+	# 비선형(제곱): 평소엔 거의 영향 없고, 절박해질 때 급격히 위험을 무릅쓴다. 위협 '센서'(IN_PRED_NEAR)는
+	# 그대로 둬 개체는 여전히 위험을 '안다' — 알면서도 굶어죽기 전에 먹으러 나가는 것.
+	var hunger: float = 1.0 - energy_norm
+	hunger = hunger * hunger
+	var gating_threat: float = threat * (1.0 - hunger * hunger_overrides_fear)
+	var refuge_gain: float = refuge_calm_pull + gating_threat * refuge_threat_gain
+	var food_gain: float = maxf(0.0, 1.0 - gating_threat * fear_food_suppress)
 	food_dir *= food_gain
 	refuge_dir *= refuge_gain
 	food_near = clampf(food_near * food_gain, 0.0, 1.0)
@@ -513,6 +523,9 @@ func get_thought() -> String:
 	# 안전지대 안에서 위험을 느끼면 안도가 머릿속을 채운다(가독성 — 안전의 의미를 보여준다).
 	if _sheltered and pred_near > 0.15:
 		return "🏠 여긴 안전해, 휴…"
+	# 허기가 공포를 이김: 굶주린 채 위험 속에서도 먹이로 향하는 절박한 채집(가독성 — 동적 트레이드오프).
+	if energy_norm < 0.25 and pred_near > 0.3 and food_near > 0.15:
+		return "😣 위험해도… 안 먹으면 죽어!"
 	# 위험이 최우선: 포식자가 가까우면 공포/도망이 머릿속을 지배한다(가독성 — 기법1).
 	if pred_near > 0.55:
 		# 가까이에 안전지대가 보이면 '숨자'는 생각으로(비전의 '집' 가독성 씨앗).

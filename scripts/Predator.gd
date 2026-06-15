@@ -30,6 +30,11 @@ class_name Predator
 @export var ambush_hop_time: float = 2.5
 ## 한 군락에서 이만큼(초) 못 잡으면 다른 군락으로 옮긴다(매복이 헛돌지 않게).
 @export var patrol_switch_time: float = 8.0
+## 안전지대 안 먹잇감을 이만큼(초) 못 잡고 매복만 하면 흥미를 잃고 다른 군락/구역으로 떠난다.
+## → 무한 매복(안의 개체를 굶겨 죽이는 죽음의 함정)을 막는다. 떠난 사이 개체가 나와 먹을 틈이 생긴다.
+@export var predator_camp_timeout: float = 7.0
+## 흥미를 잃은 뒤 먹잇감을 무시하고 다른 군락으로 이동하는 시간(초). 이 동안은 매복 지점을 다시 안 잡는다.
+@export var predator_leave_duration: float = 4.0
 
 @export_group("사냥")
 ## 이 거리 안에 들어오면 사냥 성공(px).
@@ -56,6 +61,8 @@ var _patrol_source: Vector2 = Vector2.INF  # 지금 노리는 군락 중심
 var _ambush_point: Vector2 = Vector2.INF   # 군락 가장자리의 매복 지점
 var _patrol_timer: float = 0.0        # 이 군락에서 머문 시간(초과 시 다른 군락으로)
 var _hop_timer: float = 0.0           # 매복 위치 교체 타이머
+var _camp_timer: float = 0.0          # 안전지대 안 먹잇감을 못 잡고 매복한 시간(초과 시 흥미 상실)
+var _leave_timer: float = 0.0         # >0이면 흥미를 잃고 떠나는 중(먹잇감 무시·다른 군락으로)
 
 @onready var _body: Polygon2D = $Body
 
@@ -81,25 +88,40 @@ func _physics_process(delta: float) -> void:
 		queue_free()
 		return
 
-	var prey: Creature = _nearest_prey()
+	# 흥미 상실(떠나는 중): 먹잇감을 무시하고 다른 군락으로 이동한다(무한 매복 방지의 실행 단계).
+	if _leave_timer > 0.0:
+		_leave_timer -= delta
+
+	var prey: Creature = null
+	if _leave_timer <= 0.0:
+		prey = _nearest_prey()
 	var moving := Vector2.ZERO
 	_move_scale = 1.0  # 기본 전속. 매복 접근 시에만 _patrol이 낮춘다.
 	if prey != null:
 		var to_prey: Vector2 = prey.position - position
 		var dist: float = to_prey.length()
+		# 노리는 먹잇감이 안전지대 안이면 잡을 수 없다 — 매복 시간을 센다(흥미 상실 트리거).
+		var prey_sheltered: bool = _world != null and _world.is_sheltered(prey.position)
 		# 사냥: 닿을 거리 + 쿨다운 준비 + 안전지대 밖 + 아직 안 잡힌 먹잇감.
 		# is_sheltered를 try_catch보다 먼저 단락 평가 — 안전지대 안 먹잇감을 '죽은 것으로 표시'하지 않게.
-		if dist <= catch_radius and _cooldown <= 0.0 \
-				and not (_world != null and _world.is_sheltered(prey.position)) and prey.try_catch():
+		if dist <= catch_radius and _cooldown <= 0.0 and not prey_sheltered and prey.try_catch():
 			energy = minf(energy + energy_per_kill, max_energy)
 			_cooldown = hunt_cooldown
 			_patrol_timer = 0.0  # 잡았으면 이 군락은 사냥터로 유지(다른 군락으로 안 옮김)
+			_camp_timer = 0.0    # 잡았으니 흥미 회복(매복 카운트 초기화)
 			if _world != null:
 				_world.report_predation(prey)
 		elif dist > 0.001:
 			moving = to_prey / dist  # 먹잇감 쪽으로(추적은 항상 전속)
+		# 흥미 상실: 안전지대 안 먹잇감만 노리며 못 잡으면 시간을 센다. 잡을 수 있는 먹잇감엔 흥미 유지.
+		if prey_sheltered:
+			_camp_timer += delta
+			if _camp_timer >= predator_camp_timeout:
+				_begin_leaving()  # 흥미를 잃고 다른 군락/구역으로 떠난다
+		else:
+			_camp_timer = maxf(0.0, _camp_timer - delta)
 	else:
-		moving = _patrol(delta)  # 먹잇감이 안 보이면 군락 가장자리에서 매복(중심 추종·공전 금지)
+		moving = _patrol(delta)  # 먹잇감이 안 보이면(또는 떠나는 중) 군락 가장자리에서 매복(중심 추종·공전 금지)
 
 	if moving.length() > 0.01:
 		# 부드러운 선회(각도 보간). 급선회하는 먹잇감은 turn_rate가 낮을수록 놓친다.
@@ -151,6 +173,18 @@ func _patrol(delta: float) -> Vector2:
 	# 매복 지점으로 이동하되, 가까워지면 감속해 지나치지 않게.
 	_move_scale = clampf(dist / (ambush_arrive_radius * 2.5), 0.3, 1.0)
 	return to_t / dist
+
+## 흥미 상실 → 떠나기: 매복 중이던 군락을 제외하고 다른 군락을 골라 그쪽으로 향한다.
+## predator_leave_duration 동안은 먹잇감을 무시(_physics_process)해, 실제로 자리를 떠난다.
+func _begin_leaving() -> void:
+	_camp_timer = 0.0
+	_leave_timer = predator_leave_duration
+	if _world != null:
+		var here: Vector2 = _world.pick_food_source_near(position, Vector2.INF)  # 지금 매복 중인(가장 가까운) 군락
+		_patrol_source = _world.pick_food_source_near(position, here)            # 그곳 제외 — 다른 군락으로
+		_ambush_point = Vector2.INF
+		_patrol_timer = 0.0
+		_hop_timer = 0.0
 
 ## 군락 중심에서 ambush_radius만큼 떨어진 무작위 가장자리 점(경계 안으로 클램프).
 func _ambush_around(center: Vector2) -> Vector2:
