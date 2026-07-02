@@ -357,7 +357,8 @@ func _physics_process(delta: float) -> void:
 		# 갈증 본능(반사): 물이 comfort 아래로 마르면 가장 가까운 물 쪽으로 향하는 직접 드라이브를 섞는다.
 		# 진화로 사라지지 않는 생존 본능 — 먹이(흔함)와 달리 물(드묾)은 학습만으론 약해 '목마르면 물로'를 보장.
 		# 목마를수록(아래로 갈수록) 강하고, 충분히 마시면 0. 브레인 출력 위에 얹어 진화·학습이 미세조정.
-		if thirst_drive_strength > 0.0 and _water_target != null and is_instance_valid(_water_target):
+		var scaffolding: bool = _world == null or _world.survival_scaffolding
+		if scaffolding and thirst_drive_strength > 0.0 and _water_target != null and is_instance_valid(_water_target):
 			var wn: float = water / max_water if max_water > 0.0 else 1.0
 			var urge: float = clampf((thirst_drive_comfort - wn) / maxf(0.01, thirst_drive_comfort), 0.0, 1.0)
 			if urge > 0.0:
@@ -368,7 +369,7 @@ func _physics_process(delta: float) -> void:
 		# ── 생존 우선 + 생활권(home range) + 만족 사교: 단일 우선순위로 충돌 제거(표류·구석 사망 근본 차단) ──
 		# 위협이 가까우면 브레인 회피/도망이 우선이라 안정화는 건너뛴다. 우선순위는 위에서 아래로:
 		# (1) 생활권 이탈 → 무조건 자원 복귀  (2) 욕구 임계 미만 → 즉시 자원 복귀  (3) 만족 → 친구 곁(생활권 내).
-		if _world != null and _last_sense[BrainBuilder.IN_PRED_NEAR] < 0.3:
+		if scaffolding and _world != null and _last_sense[BrainBuilder.IN_PRED_NEAR] < 0.3:
 			var en: float = energy / max_energy if max_energy > 0.0 else 0.0
 			var wn2: float = water / max_water if max_water > 0.0 else 1.0
 			var anchor: Vector2 = _world.nearest_resource_point(position)

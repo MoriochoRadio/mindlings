@@ -170,6 +170,13 @@ class_name World
 ## 반드시 개체 sense_radius(기본 220) 이상이어야 3x3 조회로 충분하다.
 @export var grid_cell_size: float = 240.0
 
+@export_group("진단/실험")
+## 매 틱 하드코딩 생존 보정(갈증 반사 드라이브 · 생활권 복귀 · 욕구 재확립 · 만족 사교)을 켜고 끈다.
+## 끄면 개체 행동이 순수 신경망(+창시자 본능 가중치 instinct_strength)만으로 결정된다.
+## AI 기여도 진단용: instinct_strength·이 값·learning_enabled 세 축을 조합해 "신경망이 실제로
+## 얼마나 행동을 책임지나"를 계측한다. 프로덕션 기본값은 true(현재 동작 유지).
+@export var survival_scaffolding: bool = true
+
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
 @onready var _food_sources: Node2D = $FoodSources
@@ -227,6 +234,19 @@ var _check_accum: float = 0.0
 var _extinct: bool = false
 var _revive_accum: float = 0.0
 
+# 진단 하네스(환경변수 MINDLINGS_DIAG=1일 때만 활성 — 프로덕션 무영향).
+# 세 축(instinct_strength/survival_scaffolding/learning_enabled)을 env로 override하고,
+# 시뮬 시간 기준으로 인구·세대·수명·채집을 주기 로그 후 자동 종료한다. 헤드리스 배치 실행용.
+var _diag: bool = false
+var _diag_elapsed: float = 0.0
+var _diag_accum: float = 0.0
+var _diag_duration: float = 120.0
+var _diag_ts: float = 5.0
+var _diag_predators: int = 0
+var _diag_peak_pop: int = 0
+var _diag_min_pop: int = 999999
+var _diag_extinct_at: float = -1.0
+
 # 포식 회피 진화 감지(M4-2). 포식자 사냥 효율(초당 사냥수)이 정점 대비 무너지면
 # = 먹잇감이 도망치기 시작한 것. 그 순간을 다정한 토스트로 짚어준다(LEGIBILITY 기법4).
 const _PRED_WINDOW: float = 8.0          # 효율 평가 주기(초)
@@ -240,8 +260,72 @@ var _avoid_toasted: bool = false
 func _ready() -> void:
 	add_to_group("world")
 	_bounds = Rect2(Vector2.ZERO, world_size)
+	_apply_diag_env()  # 스폰 전에 실험 파라미터를 override(진단 모드에서만)
 	_spawn_initial()
+	if _diag and _diag_predators > 0:  # 진단: 포식 압력 조건(안전망 유무 × 포식자)
+		for i in _diag_predators:
+			spawn_predator_at(_random_point())
 	queue_redraw()
+
+## 진단 모드 설정을 환경변수에서 읽어 적용한다. MINDLINGS_DIAG=1이 아니면 아무것도 안 한다.
+## 예) MINDLINGS_DIAG=1 MINDLINGS_INSTINCT=0 MINDLINGS_SCAFFOLD=0 MINDLINGS_LEARN=1 MINDLINGS_SEED=7
+func _apply_diag_env() -> void:
+	if OS.get_environment("MINDLINGS_DIAG") != "1":
+		return
+	_diag = true
+	var s: String = OS.get_environment("MINDLINGS_SEED")
+	if s != "":
+		seed(int(s))
+	var inst: String = OS.get_environment("MINDLINGS_INSTINCT")
+	if inst != "":
+		instinct_strength = float(inst)
+	var scaf: String = OS.get_environment("MINDLINGS_SCAFFOLD")
+	if scaf != "":
+		survival_scaffolding = (scaf == "1")
+	var learn: String = OS.get_environment("MINDLINGS_LEARN")
+	if learn != "":
+		learning_enabled = (learn == "1")
+	var lr: String = OS.get_environment("MINDLINGS_LR")
+	if lr != "":
+		learning_rate = float(lr)
+	var homeo: String = OS.get_environment("MINDLINGS_HOMEO")
+	if homeo != "":
+		weight_homeostasis = float(homeo)
+	var dur: String = OS.get_environment("MINDLINGS_DUR")
+	if dur != "":
+		_diag_duration = float(dur)
+	var ts: String = OS.get_environment("MINDLINGS_TS")
+	if ts != "":
+		_diag_ts = float(ts)
+	var preds: String = OS.get_environment("MINDLINGS_PREDATORS")
+	if preds != "":
+		_diag_predators = int(preds)
+	print("[DIAG] cfg instinct=%.2f scaffold=%s learn=%s lr=%.3f homeo=%.3f seed=%s dur=%.0f ts=%.1f" % [
+		instinct_strength, str(survival_scaffolding), str(learning_enabled),
+		learning_rate, weight_homeostasis, s, _diag_duration, _diag_ts])
+	print("[DIAG] csv t,pop,gen,avg_life,eaten")
+
+## 진단 틱: 시뮬 시간을 누적하고 5초마다 지표를 CSV로 찍는다. duration 지나면 요약 후 종료.
+func _diag_tick(delta: float) -> void:
+	Engine.time_scale = _diag_ts  # HUD가 1.0으로 덮어써도 매 프레임 강제(진단 배속)
+	_diag_elapsed += delta
+	_diag_accum += delta
+	var pop: int = get_population()
+	_diag_peak_pop = maxi(_diag_peak_pop, pop)
+	_diag_min_pop = mini(_diag_min_pop, pop)
+	if pop == 0 and _diag_extinct_at < 0.0:
+		_diag_extinct_at = _diag_elapsed
+	if _diag_accum >= 5.0:
+		_diag_accum = 0.0
+		print("[DIAG] csv %.0f,%d,%d,%.1f,%d" % [
+			_diag_elapsed, pop, get_generation(), get_avg_lifespan(), get_total_eaten()])
+	if _diag_elapsed >= _diag_duration:
+		var ext: String = ("%.0f" % _diag_extinct_at) if _diag_extinct_at >= 0.0 else "none"
+		print("[DIAG] result end_pop=%d peak=%d min=%d gen=%d avg_life=%.1f eaten=%d extinct_at=%s" % [
+			pop, _diag_peak_pop, _diag_min_pop, get_generation(), get_avg_lifespan(),
+			get_total_eaten(), ext])
+		print("[DIAG] DONE")
+		get_tree().quit()
 
 ## 배경 → 벽 → 경계선 순으로 그린다(벽은 개체보다 아래에 깔린다). 로컬 좌표.
 ## 벽은 바뀔 때만 다시 그린다(paint/erase 시 queue_redraw) — 매 프레임 비용 없음.
@@ -386,6 +470,8 @@ func report_death(age: float) -> void:
 ## 구조·수명 이정표는 매 프레임 볼 필요가 없으니 약 1.5초마다 점검한다.
 ## (포식자 통계는 매 프레임 누적해야 정확하므로 게이트 밖에서 따로 처리.)
 func _process(delta: float) -> void:
+	if _diag:
+		_diag_tick(delta)
 	_accumulate_predator_stats(delta)
 	_check_extinction(delta)
 	_herd_repel_cooldown = maxf(0.0, _herd_repel_cooldown - delta)
