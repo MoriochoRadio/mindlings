@@ -57,4 +57,9 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, radius, Color(0.24, 0.46, 0.78, 0.16))
 	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 52, Color(0.42, 0.66, 0.98, 0.30), 1.5)
 	draw_circle(Vector2.ZERO, radius * 0.62 * lvl, Color(0.45, 0.70, 1.0, 0.12))  # 수위
+	# 물빛 반짝임(작은 밝은 점 몇 개 — 수면 반사). lvl이 낮으면(마름) 옅어진다.
+	var sh: float = 0.5 * lvl
+	draw_circle(Vector2(-radius * 0.28, -radius * 0.18), 2.2, Color(0.8, 0.92, 1.0, sh))
+	draw_circle(Vector2(radius * 0.22, radius * 0.12), 1.6, Color(0.8, 0.92, 1.0, sh * 0.8))
+	draw_circle(Vector2(radius * 0.1, -radius * 0.3), 1.3, Color(0.8, 0.92, 1.0, sh * 0.7))
 	draw_circle(Vector2.ZERO, 4.0, Color(0.62, 0.86, 1.0, 0.8))                   # 샘 표식

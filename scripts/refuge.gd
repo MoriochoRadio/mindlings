@@ -18,8 +18,21 @@ func _ready() -> void:
 func contains(p: Vector2) -> bool:
 	return position.distance_squared_to(p) <= radius * radius
 
-## 수풀/굴 느낌의 '안전한 장소' — 차분한 청록빛으로 절제해 표시(군락의 초록과 구분).
+## 아늑한 '안전한 장소' — 보호 반경(은은한 청록 링) + 중앙에 작은 오두막(지붕·벽·문).
+## 군락의 초록·물의 파랑과 구분되는 따뜻한 나무빛 집으로 '여기 오면 안전하다'가 읽히게.
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, radius, Color(0.30, 0.55, 0.62, 0.10))
-	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 56, Color(0.45, 0.78, 0.82, 0.22), 1.5)
-	draw_circle(Vector2.ZERO, 5.0, Color(0.60, 0.88, 0.88, 0.7))  # 굴 입구 표식
+	# 보호 반경(안쪽 은은한 채움 + 경계 링)
+	draw_circle(Vector2.ZERO, radius, Color(0.30, 0.52, 0.60, 0.10))
+	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 56, Color(0.50, 0.82, 0.85, 0.22), 1.5)
+	# 아늑한 바닥 원(중앙 — 쉼터 느낌)
+	draw_circle(Vector2.ZERO, 22.0, Color(0.32, 0.28, 0.24, 0.28))
+	# 작은 오두막: 벽(나무빛 사각) + 삼각 지붕 + 문
+	var wall := Color(0.55, 0.42, 0.30)
+	var roof := Color(0.42, 0.26, 0.22)
+	var door := Color(0.24, 0.16, 0.14)
+	draw_rect(Rect2(-9.0, -4.0, 18.0, 14.0), wall)                                  # 벽
+	draw_colored_polygon(PackedVector2Array([                                       # 지붕
+		Vector2(-12.0, -4.0), Vector2(0.0, -15.0), Vector2(12.0, -4.0)]), roof)
+	draw_rect(Rect2(-3.0, 1.0, 6.0, 9.0), door)                                     # 문
+	# 지붕 처마 라인(약한 외곽)
+	draw_line(Vector2(-12.0, -4.0), Vector2(12.0, -4.0), roof.darkened(0.2), 1.5)
