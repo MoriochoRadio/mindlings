@@ -283,9 +283,14 @@ func _ready() -> void:
 	_apply_diag_env()  # 스폰 전에 실험 파라미터를 override(진단 모드에서만)
 	_generate_decor()  # 배경 장식(풀·흙 패치) 위치를 한 번 생성
 	_spawn_initial()
-	if _diag and _diag_predators > 0:  # 진단: 포식 압력 조건(안전망 유무 × 포식자)
-		for i in _diag_predators:
-			spawn_predator_at(_random_point())
+	# 포식 압력 조건(진단·스크린샷 공용): MINDLINGS_PREDATORS 마리를 시작 시 푼다.
+	var np: int = _diag_predators
+	if np == 0:
+		var penv: String = OS.get_environment("MINDLINGS_PREDATORS")
+		if penv != "":
+			np = int(penv)
+	for i in np:
+		spawn_predator_at(_random_point())
 	queue_redraw()
 
 ## 진단 모드 설정을 환경변수에서 읽어 적용한다. MINDLINGS_DIAG=1이 아니면 아무것도 안 한다.
