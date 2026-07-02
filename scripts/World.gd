@@ -355,7 +355,7 @@ func reproduce(parent: Creature) -> bool:
 	var child_brain: MindNet = parent.get_brain().clone()
 	child_brain.value_clamp = recurrent_clamp  # 라이브 튜닝 반영(클론은 부모 값을 물려받지만 현재 설정으로 덮어씀)
 	child_brain.mutate(weight_mutate_rate, weight_perturb, weight_replace_chance,
-		add_conn_chance, add_node_chance, add_recurrent_chance)
+		add_conn_chance, add_node_chance, add_recurrent_chance, learn_weight_clamp)
 	# 유전 형질(크기·색)도 부모에서 복제 후 돌연변이로 물려준다(뇌와 동일 원리).
 	var child_genes: CreatureGenes = parent.genes.inherit(
 		gene_size_min, gene_size_max, size_mutate_rate, size_mutate_amount, hue_mutate_amount,
@@ -583,25 +583,23 @@ func _spawn_food_source(pos: Vector2) -> void:
 	s.setup(self)
 	_food_sources.add_child(s)
 
-## 보조 모드: 반경 안의 먹이를 지운다. 지운 개수를 반환.
-func remove_food_near(local_pos: Vector2, radius: float) -> int:
+## 지우개 공용: 컨테이너 자식 중 반경 안의 노드를 제거하고 개수를 반환(먹이/군락/은신처/물 동형 로직).
+func _remove_near(container: Node2D, local_pos: Vector2, radius: float) -> int:
 	var r2: float = radius * radius
 	var removed: int = 0
-	for f in _food.get_children():
-		if local_pos.distance_squared_to(f.position) <= r2:
-			f.queue_free()
+	for n in container.get_children():
+		if local_pos.distance_squared_to(n.position) <= r2:
+			n.queue_free()
 			removed += 1
 	return removed
 
+## 보조 모드: 반경 안의 먹이를 지운다. 지운 개수를 반환.
+func remove_food_near(local_pos: Vector2, radius: float) -> int:
+	return _remove_near(_food, local_pos, radius)
+
 ## 보조 모드: 반경 안의 식물 군락을 제거(지우개/우클릭). 지운 개수를 반환.
 func remove_food_sources_near(local_pos: Vector2, radius: float) -> int:
-	var r2: float = radius * radius
-	var removed: int = 0
-	for s in _food_sources.get_children():
-		if local_pos.distance_squared_to(s.position) <= r2:
-			s.queue_free()
-			removed += 1
-	return removed
+	return _remove_near(_food_sources, local_pos, radius)
 
 ## 🏠 안전지대 도구: 그 자리에 은신처를 놓는다(드래그로 여러 개). 상한에 걸리면 false.
 func spawn_refuge_at(local_pos: Vector2) -> bool:
@@ -619,13 +617,7 @@ func _spawn_refuge(pos: Vector2) -> void:
 
 ## 보조 모드: 반경 안의 안전지대를 제거(지우개/우클릭). 지운 개수를 반환.
 func remove_refuges_near(local_pos: Vector2, radius: float) -> int:
-	var r2: float = radius * radius
-	var removed: int = 0
-	for r in _refuges.get_children():
-		if local_pos.distance_squared_to(r.position) <= r2:
-			r.queue_free()
-			removed += 1
-	return removed
+	return _remove_near(_refuges, local_pos, radius)
 
 ## 개체가 안전지대 센서로 가장 가까운 은신처를 훑을 때 사용(매 틱). 은신처는 소수라 직접 순회.
 func get_refuge_nodes() -> Array:
@@ -648,13 +640,7 @@ func _spawn_water_pool(pos: Vector2) -> void:
 
 ## 보조 모드: 반경 안의 물웅덩이를 제거(지우개/우클릭). 지운 개수를 반환.
 func remove_waters_near(local_pos: Vector2, radius: float) -> int:
-	var r2: float = radius * radius
-	var removed: int = 0
-	for w in _waters.get_children():
-		if local_pos.distance_squared_to(w.position) <= r2:
-			w.queue_free()
-			removed += 1
-	return removed
+	return _remove_near(_waters, local_pos, radius)
 
 ## 개체가 갈증 센서로 가장 가까운 물웅덩이를 훑을 때 사용(매 틱). 물은 소수라 직접 순회.
 func get_water_nodes() -> Array:
@@ -1100,16 +1086,9 @@ func get_avg_brain() -> Vector2:
 		conn_sum += net.count_enabled_connections()
 	return Vector2(float(node_sum) / n, float(conn_sum) / n)
 
-## 개체가 센서로 주변을 훑을 때 사용(M2). 매 틱 호출되므로 컨테이너 자식 그대로 반환.
-func get_food_nodes() -> Array:
-	return _food.get_children()
-
+## 유대선(BondLines)·개체 선택 등 소수 순회용. (센싱은 공간 그리드 *_near를 쓴다.)
 func get_creature_nodes() -> Array:
 	return _creatures.get_children()
-
-## 개체가 위험 센서로 가장 가까운 포식자를 훑을 때 사용(매 틱 호출).
-func get_predator_nodes() -> Array:
-	return _predators.get_children()
 
 func get_predator_count() -> int:
 	return _predators.get_child_count()

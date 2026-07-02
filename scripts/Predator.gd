@@ -238,6 +238,8 @@ func _nearest_prey() -> Creature:
 	var nearest: Creature = null
 	var best: float = detect_radius * detect_radius
 	for c in _world.creatures_near(position):  # 공간 그리드: 근처 셀만(성능)
+		if not (c as Creature).is_alive():
+			continue  # 같은 프레임에 이미 잡힌/죽은 개체는 무시(시체 추적 방지)
 		var d2: float = position.distance_squared_to(c.position)
 		if d2 < best:
 			best = d2

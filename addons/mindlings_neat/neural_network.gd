@@ -197,14 +197,17 @@ func count_enabled_connections() -> int:
 ## NEAT 돌연변이(M3 + 기억). 자식 망에 적용: 가중치 변이 + 구조 변이(연결/노드/순환 추가).
 ## 피드포워드 연결은 비순환을 유지하고, 순환(기억) 연결은 의도적으로 사이클을 허용한다.
 ## add_recurrent_chance로 '순환 연결 추가'를 켠다(창시자엔 안 줌 — 기억은 진화로 떠오른다).
+## weight_limit = 섭동 후 가중치 한계 — 학습 클램프(World.learn_weight_clamp)와 같은 값을 받아
+## '유전 한계 = 학습 한계'를 일치시킨다(하드코딩 이원화 방지).
 func mutate(weight_rate: float, perturb: float, replace_chance: float,
-		add_conn_chance: float, add_node_chance: float, add_recurrent_chance: float = 0.0) -> void:
+		add_conn_chance: float, add_node_chance: float, add_recurrent_chance: float = 0.0,
+		weight_limit: float = 8.0) -> void:
 	for c in connections:
 		if randf() < weight_rate:
 			if randf() < replace_chance:
 				c.weight = randf_range(-1.0, 1.0)
 			else:
-				c.weight = clampf(c.weight + randf_range(-perturb, perturb), -8.0, 8.0)
+				c.weight = clampf(c.weight + randf_range(-perturb, perturb), -weight_limit, weight_limit)
 			c.base = c.weight  # 돌연변이된 값이 새 유전 기준선(생애 학습은 여기서 다시 탄력 이탈)
 	if randf() < add_conn_chance:
 		_mutate_add_connection()
@@ -215,10 +218,12 @@ func mutate(weight_rate: float, perturb: float, replace_chance: float,
 	compile()
 
 ## 기존 연결을 분할: 연결을 끊고 그 사이에 은닉 노드를 넣는다(NEAT add-node).
+## 순환(기억) 연결은 분할하지 않는다 — 쪼개면 피드포워드 2개로 변질돼 '1틱 지연' 의미가 사라지고,
+## 자기연결(a→a) 분할 시 진짜 사이클(a→new→a)이 생겨 위상정렬이 무너진다(평가 순서 오염).
 func _mutate_add_node() -> void:
 	var enabled: Array = []
 	for c in connections:
-		if c.enabled:
+		if c.enabled and not c.recurrent:
 			enabled.append(c)
 	if enabled.is_empty():
 		return

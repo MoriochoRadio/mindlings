@@ -280,6 +280,10 @@ func get_brain() -> MindNet:
 func is_alarm_reacting() -> bool:
 	return _alarm_reacting
 
+## 아직 살아있는가(잡히거나 굶어 죽은 개체는 free 전 프레임에도 false) — 포식자 타깃 필터 등.
+func is_alive() -> bool:
+	return _alive
+
 ## 포식자가 호출. 아직 살아있으면 잡아챈다(true). 이미 죽었거나 잡혔으면 false.
 ## true를 받은 포식자만 사냥 성공으로 처리한다(중복 포획·이중 집계 방지).
 func try_catch() -> bool:
@@ -606,6 +610,8 @@ func _try_eat() -> void:
 	_ate_energy = 0.0
 	if not _want_eat:
 		return
+	if max_energy - energy <= 0.1:
+		return  # 이미 배부름 — 먹이를 낭비하지 않는다(물의 '가득이면 안 마심'과 대칭)
 	for area in get_overlapping_areas():
 		if area is Food:
 			var before: float = energy
