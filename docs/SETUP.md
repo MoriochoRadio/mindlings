@@ -15,7 +15,6 @@
 | **GitHub CLI (gh)** | GitHub 저장소 연동 | ✅ 이미 설치·로그인됨 |
 | **Claude Code** | 실제 코딩을 맡는 AI(시공) | ✅ 이미 사용 중 |
 | **VS Code** | 코드 보기/편집(선택, 추천) | ⬜ 선택 설치 |
-| GodotSteam / Steamworks | 스팀 출시용 | ⏳ 지금 아님(M8에서) |
 
 > RTX 5060·Windows 11이면 성능은 차고 넘친다. 우리 게임은 2D라 그래픽 부담이 거의 없다.
 

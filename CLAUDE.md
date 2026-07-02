@@ -9,13 +9,14 @@
 **방향 전환(2026-06): 소수(~10) 정예 + 깊은 AI** — 많은 수의 집단 진화보다, 각 개체가 *생애 내 학습*으로
 스스로 발전하는 걸 가까이서 지켜보고 아끼는 **친밀한 캐릭터 사회**(RimWorld·심즈·다마고치 인접, 단 진짜
 학습 AI + 마음을 다 보는 가독성이 차별점). 자세한 건 GAME_DESIGN '게임 정체성'·'정체성 갱신' 참고.
-목표: 무료 오픈소스 스택으로 만들어 **Steam에 출시**.
+성격: **개인 프로젝트**(혼자 만드는 취미·실험). 무료 오픈소스 스택(Godot+GDScript)으로 만든다.
+상업 출시·스팀 배포 계획은 없음 — 만들고 싶은 걸 자유롭게 만들고, 코드는 GitHub에 공개해 둔다.
 
 ## 진실의 원천 (먼저 읽을 것)
 - 게임 설계: `docs/GAME_DESIGN.md`
 - 기술 스택: `docs/TECH_STACK.md`
 - 로드맵 & 작업 명세: `docs/ROADMAP.md`  ← 작업 지시는 보통 "M2 구현" 식으로 들어온다
-- 시장 분석 & 차별화 전략: `docs/MARKET_ANALYSIS.md`  ← 기능 결정 시 "차별화 4기둥(8장)을 강화하나?"로 판단
+- 차별화 관점(참고): `docs/MARKET_ANALYSIS.md`  ← 시장·출시 전략은 보류(개인 프로젝트). '차별화 4기둥(8장)'만 설계 참고로.
 - 가독성 & UX 설계: `docs/LEGIBILITY_UX.md`  ← 뇌 시각화·온보딩·"이해되는 AI"를 만들 때 기준
 - 재미 설계: `docs/FUN_DESIGN.md`  ← "기본 루프가 재밌나?"의 기준. M4(권능)·M7(목표)·확장 Acts 설계 시 참고
 - 깊이·콘텐츠 로드맵: `docs/DEPTH_ROADMAP.md`  ← "밋밋함" 해소 우선순위(보이는 형질 진화·먹이사슬·가독성). 레퍼런스 기준선
@@ -24,7 +25,6 @@
 - 엔진: **Godot 4.4+** / 언어: **GDScript**(성능 병목 시 C# 검토)
 - AI: **NEAT** (GDScript 네이티브 라이브러리; Godot-AI-Kit 또는 NEAT_GDScript 평가 후 채택)
 - 형상관리: Git + GitHub (github.com/MoriochoRadio)
-- Steam: **GodotSteam** (출시 단계 M8에서 통합)
 
 ## 디렉토리 구조 (목표)
 ```
@@ -35,7 +35,7 @@
   scenes/         .tscn 씬 파일
   scripts/        .gd 스크립트
   assets/         이미지·사운드·폰트 (라이선스는 docs/ASSET_CREDITS.md)
-  addons/         서드파티 플러그인 (NEAT 라이브러리, 추후 GodotSteam)
+  addons/         서드파티 플러그인 (NEAT 라이브러리)
 ```
 
 ## 코드 컨벤션
@@ -53,7 +53,7 @@
 
 ## 빌드 / 실행
 - Godot 에디터에서 프로젝트 열고 F5로 실행 (메인 씬: `scenes/Main.tscn`).
-- 익스포트(Windows)는 M8에서 정리.
+- 익스포트(Windows)는 나중에 필요할 때 정리(개인 프로젝트라 급하지 않음).
 
 ## 하지 말 것
 - MVP 범위 밖 기능을 미리 구현하지 말 것(멀티 종/3D/멀티플레이 등은 후속).
