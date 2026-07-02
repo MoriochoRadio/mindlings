@@ -367,6 +367,10 @@ func _physics_process(delta: float) -> void:
 	var water_norm: float = water / max_water if max_water > 0.0 else 1.0
 	if water_norm < dehydration_threshold and dehydration_threshold > 0.0:
 		decay += (dehydration_threshold - water_norm) / dehydration_threshold * dehydration_energy_penalty
+	# 한파(위기): 안전지대 밖이면 추위로 대사가 커진다(에너지 급감). 안전지대 안이면 보온(면제) —
+	# 안전지대에 '포식 회피' 외의 새 쓸모를 준다. 플레이어는 🏠 배치나 🍃 먹이 공급으로 구조.
+	if _world != null and _world.is_cold() and not _world.is_sheltered(position):
+		decay *= _world.cold_metabolism_mult
 	energy -= decay * delta
 	if energy <= 0.0:
 		_alive = false
@@ -923,6 +927,11 @@ func get_thought() -> String:
 		if refuge_near > 0.2:
 			return "🏠 위험해, 숨자!"
 		return "😨 포식자다, 도망쳐!"
+	# 한파(위기): 안전지대 밖에서 추위에 떤다 — 위기가 캐릭터에게도 읽히게(가독성).
+	if _world != null and _world.is_cold() and not _sheltered:
+		if refuge_near > 0.2:
+			return "🥶 너무 추워… 집으로 가자!"
+		return "🥶 덜덜… 너무 추워요."
 	# 무리 결집: 위협 속에서 곁에 동족이 있으면 '뭉치자'는 생각(숨기뿐 아닌 사회적 대응 — 가독성).
 	if pred_near > 0.3 and density > 0.2:
 		return "🤝 다 같이 모이자!"

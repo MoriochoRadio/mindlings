@@ -170,17 +170,18 @@ class_name World
 ## 반드시 개체 sense_radius(기본 220) 이상이어야 3x3 조회로 충분하다.
 @export var grid_cell_size: float = 240.0
 
-@export_group("위기 이벤트 — 가뭄(재미 프로토타입)")
-## 재미 프로토타입(방향 1+2): '위기→개입→안도' 루프의 첫 검증. 주기적으로 가뭄이 와서 물웅덩이가
-## 마르고, 플레이어가 💧 물 도구로 새 물을 만들어 소수 캐릭터를 구해야 한다(개입에 처음으로 의미가 생김).
-## 재미 없으면 이 그룹만 들어내면 된다(격리 설계).
-@export var drought_enabled: bool = true
-## 평시(가뭄 사이) 지속 시간(초).
-@export var drought_calm_duration: float = 25.0
-## 가뭄 지속 시간(초). 이 동안 물웅덩이가 재생을 멈추고 증발한다.
-@export var drought_duration: float = 20.0
-## 가뭄 중 물웅덩이가 초당 잃는 수분(증발). regen_rate보다 커야 실제로 마른다.
+@export_group("위기 이벤트")
+## 방향 1+2 '위기→개입→안도' 루프. 주기적으로 위기(가뭄·한파…)가 닥치고, 플레이어가 신의 도구로
+## 소수 캐릭터를 구해야 한다(개입에 의미가 생김). 재미 없으면 이 그룹만 들어내면 된다(격리 설계).
+@export var crisis_enabled: bool = true
+## 평시(위기 사이) 지속 시간(초).
+@export var crisis_calm_duration: float = 25.0
+## 위기 지속 시간(초).
+@export var crisis_duration: float = 18.0
+## [가뭄] 물웅덩이가 초당 잃는 수분(증발). regen_rate보다 커야 실제로 마른다. 대응: 💧 물웅덩이.
 @export var drought_evaporation: float = 30.0
+## [한파] 안전지대 밖 개체의 대사(에너지 소모) 배율. 대응: 🏠 안전지대(보온) 또는 🍃 먹이 공급.
+@export var cold_metabolism_mult: float = 2.4
 
 @export_group("행동/AI")
 ## 매 틱 하드코딩 생존 보정(갈증 반사 드라이브 · 생활권 복귀 · 욕구 재확립 · 만족 사교)을 켜고 끈다.
@@ -250,9 +251,10 @@ var _check_accum: float = 0.0
 var _extinct: bool = false
 var _revive_accum: float = 0.0
 
-# 가뭄 위기(재미 프로토타입). 평시↔가뭄을 오가며 물을 마르게 해 '구조' 개입을 유발한다.
-var _drought_active: bool = false
-var _drought_timer: float = 0.0
+# 위기 시스템. 평시↔위기를 오가며 '구조' 개입을 유발한다. 위기 종류는 무작위로 뽑힌다.
+enum Crisis { NONE, DROUGHT, COLD }
+var _crisis: int = Crisis.NONE
+var _crisis_timer: float = 0.0
 
 # 진단 하네스(환경변수 MINDLINGS_DIAG=1일 때만 활성 — 프로덕션 무영향).
 # 세 축(instinct_strength/survival_scaffolding/learning_enabled)을 env로 override하고,
@@ -291,6 +293,12 @@ func _ready() -> void:
 			np = int(penv)
 	for i in np:
 		spawn_predator_at(_random_point())
+	# 스크린샷/테스트: 특정 위기를 즉시 강제 발동(무작위 타이밍을 기다리지 않게).
+	var fc: String = OS.get_environment("MINDLINGS_FORCE_CRISIS")
+	if fc == "cold":
+		_crisis = Crisis.COLD
+	elif fc == "drought":
+		_crisis = Crisis.DROUGHT
 	queue_redraw()
 
 ## 진단 모드 설정을 환경변수에서 읽어 적용한다. MINDLINGS_DIAG=1이 아니면 아무것도 안 한다.
@@ -356,20 +364,37 @@ func _diag_tick(delta: float) -> void:
 ## 배경 초원 → 흙 패치 → 풀 → 벽 → 경계선 순(모두 개체보다 아래). 정적이라 드물게만 다시 그린다
 ## (가뭄 전환·벽 편집 시 queue_redraw). 매 프레임 비용 없음.
 func _draw() -> void:
-	var dry: bool = _drought_active
-	# 베이스: 평시엔 짙은 초원 청록, 가뭄엔 메마른 황갈빛(위기가 한눈에).
-	var bg: Color = Color(0.22, 0.17, 0.12) if dry else Color(0.11, 0.15, 0.15)
+	var dry: bool = is_drought()
+	var cold: bool = is_cold()
+	# 베이스: 평시 초원 청록 / 가뭄 메마른 황갈 / 한파 시린 청백(위기가 한눈에).
+	var bg: Color = Color(0.11, 0.15, 0.15)
+	if dry:
+		bg = Color(0.22, 0.17, 0.12)
+	elif cold:
+		bg = Color(0.15, 0.19, 0.26)
 	draw_rect(_bounds, bg, true)
 	# 부드러운 빛 웅덩이(개활지 느낌 — 밋밋한 단색 탈피). 큰 반투명 밝은 원 두 곳.
-	var glow: Color = Color(0.28, 0.22, 0.15, 0.18) if dry else Color(0.16, 0.22, 0.22, 0.22)
+	var glow: Color = Color(0.16, 0.22, 0.22, 0.22)
+	if dry:
+		glow = Color(0.28, 0.22, 0.15, 0.18)
+	elif cold:
+		glow = Color(0.26, 0.32, 0.42, 0.20)
 	draw_circle(_bounds.position + _bounds.size * Vector2(0.35, 0.42), _bounds.size.x * 0.34, glow)
 	draw_circle(_bounds.position + _bounds.size * Vector2(0.72, 0.62), _bounds.size.x * 0.28, glow)
 	# 흙 패치(옅은 얼룩 — 지면 질감).
-	var patch_col: Color = Color(0.26, 0.20, 0.14, 0.28) if dry else Color(0.14, 0.18, 0.15, 0.35)
+	var patch_col: Color = Color(0.14, 0.18, 0.15, 0.35)
+	if dry:
+		patch_col = Color(0.26, 0.20, 0.14, 0.28)
+	elif cold:
+		patch_col = Color(0.22, 0.27, 0.34, 0.30)  # 성에 낀 얼룩
 	for p in _patches:
 		draw_circle(p.pos, p.radius, patch_col)
-	# 풀 다발(작은 세 잎). 가뭄엔 시든 갈색으로.
-	var grass_col: Color = Color(0.42, 0.36, 0.20, 0.5) if dry else Color(0.28, 0.46, 0.30, 0.55)
+	# 풀 다발(작은 세 잎). 가뭄엔 시든 갈색, 한파엔 서리 낀 창백.
+	var grass_col: Color = Color(0.28, 0.46, 0.30, 0.55)
+	if dry:
+		grass_col = Color(0.42, 0.36, 0.20, 0.5)
+	elif cold:
+		grass_col = Color(0.55, 0.62, 0.68, 0.5)
 	for g in _grass:
 		if not _cell_blocked(g):
 			draw_line(g, g + Vector2(-1.6, -4.5), grass_col, 1.0)
@@ -528,7 +553,7 @@ func _process(delta: float) -> void:
 	if _diag:
 		_diag_tick(delta)
 	else:
-		_update_drought(delta)
+		_update_crisis(delta)
 	_accumulate_predator_stats(delta)
 	_check_extinction(delta)
 	_herd_repel_cooldown = maxf(0.0, _herd_repel_cooldown - delta)
@@ -541,32 +566,43 @@ func _process(delta: float) -> void:
 	_check_structure_milestone()
 	_check_lifespan_milestone()
 
-## 가뭄 위기 사이클: 평시↔가뭄을 타이머로 오간다. 전환 순간을 토스트로 알리고 배경을 다시 그린다.
-## 가뭄 중엔 WaterPool이 재생을 멈추고 증발한다(WaterPool._process가 is_drought()를 조회).
-func _update_drought(delta: float) -> void:
-	if not drought_enabled:
-		if _drought_active:  # 런타임에 꺼지면 즉시 평시로
-			_drought_active = false
+## 위기 사이클: 평시↔위기를 타이머로 오간다. 위기 시작 시 무작위 종류를 뽑고, 전환을 토스트·배경으로 알린다.
+func _update_crisis(delta: float) -> void:
+	if not crisis_enabled:
+		if _crisis != Crisis.NONE:  # 런타임에 꺼지면 즉시 평시로
+			_crisis = Crisis.NONE
 			queue_redraw()
 		return
-	_drought_timer += delta
-	if not _drought_active:
-		if _drought_timer >= drought_calm_duration:
-			_drought_active = true
-			_drought_timer = 0.0
-			queue_redraw()
-			_toast("☀️ 가뭄이 시작됐어요! 물이 말라가요 — 💧 물웅덩이를 만들어 아이들을 구해주세요.")
-	else:
-		if _drought_timer >= drought_duration:
-			_drought_active = false
-			_drought_timer = 0.0
-			queue_redraw()
-			if get_population() > 0:
-				_toast("🌧️ 가뭄이 지나갔어요. 다들 무사히 버텨냈네요.")
+	_crisis_timer += delta
+	if _crisis == Crisis.NONE:
+		if _crisis_timer >= crisis_calm_duration:
+			_start_random_crisis()
+	elif _crisis_timer >= crisis_duration:
+		_end_crisis()
 
-## WaterPool·연출이 조회: 지금 가뭄인가.
+## 무작위 위기를 시작한다(가뭄/한파). 종류별 안내 토스트로 '무엇을 해야 하는지'를 즉시 알려준다.
+func _start_random_crisis() -> void:
+	_crisis = Crisis.DROUGHT if randi() % 2 == 0 else Crisis.COLD
+	_crisis_timer = 0.0
+	queue_redraw()
+	if _crisis == Crisis.DROUGHT:
+		_toast("☀️ 가뭄이 시작됐어요! 물이 말라가요 — 💧 물웅덩이를 만들어 아이들을 구해주세요.")
+	else:
+		_toast("❄️ 한파가 닥쳤어요! 다들 추위에 떨어요 — 🏠 안전지대로 지키거나 🍃 먹이를 챙겨주세요.")
+
+func _end_crisis() -> void:
+	_crisis = Crisis.NONE
+	_crisis_timer = 0.0
+	queue_redraw()
+	if get_population() > 0:
+		_toast("🌤️ 위기가 지나갔어요. 다들 무사히 버텨냈네요.")
+
+## 연출·시스템이 조회하는 현재 위기 상태.
 func is_drought() -> bool:
-	return _drought_active
+	return _crisis == Crisis.DROUGHT
+
+func is_cold() -> bool:
+	return _crisis == Crisis.COLD
 
 ## 가뭄 중 물웅덩이가 초당 잃는 증발량(WaterPool이 조회).
 func drought_evaporation_rate() -> float:
