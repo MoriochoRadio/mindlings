@@ -182,6 +182,9 @@ var _nudge_dir: Vector2 = Vector2.ZERO # 탈출 방향(열린 쪽)
 var _color_step: int = -1              # 에너지→색 양자화 단계(바뀔 때만 다시 그림 — 성능)
 var _walk_phase: float = 0.0           # 걷기 애니메이션 위상(이동 중 증가 — 다리·팔·몸 흔들림)
 var _face: float = 1.0                 # 바라보는 방향(+1 오른쪽 / -1 왼쪽) — 몸은 안 눕고 좌우만 뒤집는다
+# 애착·인생 기록(애착 요소)
+var favorited: bool = false            # 즐겨찾기(별표) — 이름표 별 + 죽을 때 특별 알림
+var children_count: int = 0            # 낳은 자녀 수(인생 기록)
 var _name_tag: NameTag = null          # 머리 위 이름표(소수를 개인으로)
 # 생애 내 학습(AI 정교화 2단계)
 var _prev_pred_near: float = 0.0       # 위협도 변화(탈출=보상, 접근=벌) 계산용
@@ -341,6 +344,21 @@ func trait_color() -> Color:
 func get_brain() -> MindNet:
 	return _brain
 
+## 즐겨찾기 토글(BrainPanel의 F키 등에서 호출). 이름표 별을 갱신하고 상태를 반환한다.
+func toggle_favorite() -> bool:
+	favorited = not favorited
+	if _name_tag != null:
+		_name_tag.set_favorited(favorited)
+	return favorited
+
+## 인생 기록: 지금 '친구'(유대 임계 이상)인 상대 수.
+func get_friend_count() -> int:
+	var n: int = 0
+	for other in _bonds:
+		if is_instance_valid(other) and _bonds[other] >= friend_threshold:
+			n += 1
+	return n
+
 ## 진단(World): 포식자를 직접 못 봤는데 경보로 반응 중인가(사회적 전파 작동 지표).
 func is_alarm_reacting() -> bool:
 	return _alarm_reacting
@@ -375,7 +393,7 @@ func _physics_process(delta: float) -> void:
 	if energy <= 0.0:
 		_alive = false
 		if _world != null:
-			_world.report_death(age, position)
+			_world.report_death(self)
 		queue_free()
 		return
 

@@ -16,6 +16,14 @@ func _ready() -> void:
 		_capture_screenshot(shot, frames)
 
 func _capture_screenshot(path: String, frames: int) -> void:
+	# 테스트: 첫 개체를 선택+즐겨찾기해 뇌 패널(인생 기록·별)을 화면에 띄운다.
+	if OS.get_environment("MINDLINGS_SELECT") == "1":
+		var w: Node = get_tree().get_first_node_in_group("world")
+		if w != null:
+			var cs: Array = w.get_creature_nodes()
+			if cs.size() > 0:
+				cs[0].toggle_favorite()
+				get_tree().call_group("brain_panel", "select_creature", cs[0])
 	for _i in frames:
 		await get_tree().process_frame
 	var img: Image = get_viewport().get_texture().get_image()

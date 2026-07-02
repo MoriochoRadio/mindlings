@@ -534,6 +534,7 @@ func reproduce(parent: Creature) -> bool:
 	child.energy = offspring_start_energy  # _ready 이후라 시작 에너지를 덮어쓴다
 
 	parent.energy -= repro_cost
+	parent.children_count += 1  # 인생 기록: 부모의 자녀 수
 	# 출생의 순간(삶의 이벤트): 따뜻한 반짝임 + 가끔 다정한 알림(소수라 한 명 한 명이 소중).
 	spawn_life_effect(child.position, 26.0, Color(1.0, 0.9, 0.55))
 	_toast("💛 %s에게서 아기 %s가 태어났어요." % [parent.nickname, child.nickname])
@@ -549,16 +550,19 @@ func spawn_life_effect(pos: Vector2, radius: float, color: Color) -> void:
 	fx.setup(radius, color)
 	add_child(fx)
 
-## 개체가 죽을 때 호출(평균 수명 통계용 + 최근 수명 롤링). pos가 유효하면 조용한 상실 이펙트를 남긴다.
-func report_death(age: float, pos: Vector2 = Vector2.INF) -> void:
-	_death_age_sum += age
+## 개체가 죽을 때 호출(평균 수명 통계 + 최근 수명 롤링 + 상실 연출). 개체 참조로 위치·즐겨찾기를 읽는다.
+func report_death(c: Creature) -> void:
+	_death_age_sum += c.age
 	_death_count += 1
-	_recent_ages.append(age)
+	_recent_ages.append(c.age)
 	if _recent_ages.size() > _RECENT_MAX:
 		_recent_ages.pop_front()
-	# 죽음의 순간(삶의 이벤트): 조용히 흩어지는 옅은 이펙트(토스트 없이 — 절제된 상실).
-	if pos != Vector2.INF:
-		spawn_life_effect(pos, 20.0, Color(0.62, 0.66, 0.76))
+	# 죽음의 순간(삶의 이벤트): 조용히 흩어지는 옅은 이펙트.
+	spawn_life_effect(c.position, 20.0, Color(0.62, 0.66, 0.76))
+	# 즐겨찾기(아끼던) 개체는 특별히 작별을 알린다(애착 — 상실이 의미를 갖게). 그 외엔 조용한 이펙트만.
+	if c.favorited:
+		_toast("🕊️ 아끼던 %s가 세상을 떠났어요. (%d세대 · %.0f살 · 자녀 %d)" % [
+			c.nickname, c.generation, c.age, c.children_count])
 
 ## 구조·수명 이정표는 매 프레임 볼 필요가 없으니 약 1.5초마다 점검한다.
 ## (포식자 통계는 매 프레임 누적해야 정확하므로 게이트 밖에서 따로 처리.)
@@ -1009,7 +1013,7 @@ func spawn_predator_at(local_pos: Vector2) -> bool:
 ## 포식도 하나의 선택압이므로 수명 통계에 포함하고, 회피 진화 감지용으로도 집계한다.
 func report_predation(prey: Creature) -> void:
 	_pred_kills_window += 1
-	report_death(prey.age, prey.position)
+	report_death(prey)
 	prey.queue_free()
 
 ## 포식자가 굶어 죽었을 때 호출(현재는 통계 훅 자리 — 자기 균형의 신호).

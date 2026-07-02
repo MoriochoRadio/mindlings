@@ -41,6 +41,15 @@ func _process(_delta: float) -> void:
 	if visible:
 		queue_redraw()  # 발화가 매 프레임 갱신되도록
 
+## 선택된 개체를 F키로 즐겨찾기 토글(애착). 패널이 떠 있을 때만 반응.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not visible or _creature == null or not is_instance_valid(_creature):
+		return
+	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_F:
+		_creature.toggle_favorite()
+		queue_redraw()
+		get_viewport().set_input_as_handled()
+
 func _layout() -> void:
 	_node_pos.clear()
 	var net: MindNet = _creature.get_brain()
@@ -74,9 +83,15 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(0.05, 0.06, 0.09, 0.85), true)
 	draw_rect(Rect2(Vector2.ZERO, PANEL_SIZE), Color(1, 1, 1, 0.12), false, 1.0)
 
-	# 이름(애착·가독성) + 계보 색 스와치 — 패널 제목.
-	draw_string(font, Vector2(12, 26), _creature.nickname,
-		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 60, 18, Color(0.98, 0.98, 1.0))
+	# 이름(애착·가독성) + 즐겨찾기 별 + 계보 색 스와치 — 패널 제목.
+	var title: String = ("★ " + _creature.nickname) if _creature.favorited else _creature.nickname
+	var title_col: Color = Color(1.0, 0.9, 0.5) if _creature.favorited else Color(0.98, 0.98, 1.0)
+	draw_string(font, Vector2(12, 26), title,
+		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 90, 18, title_col)
+	# 즐겨찾기 토글 힌트(작게).
+	draw_string(font, Vector2(PANEL_SIZE.x - 108, 24),
+		"[F] 즐겨찾기" if not _creature.favorited else "[F] 해제",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.6, 0.65, 0.72))
 	var sw := Vector2(PANEL_SIZE.x - 24, 20)
 	draw_circle(sw, 8.0, _creature.trait_color())
 	draw_arc(sw, 8.0, 0.0, TAU, 18, Color(1, 1, 1, 0.35), 1.0)
@@ -84,9 +99,10 @@ func _draw() -> void:
 	# 생각(사람 말로 통역) — LEGIBILITY 기법1·3층 중 2층.
 	draw_string(font, Vector2(12, 50), _creature.get_thought(),
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 15, Color(0.96, 0.97, 1.0))
-	# 쉬운 상태(숫자 대신 의미). 나이·세대(배부름은 아래 '허기' 게이지로 보여준다).
+	# 인생 기록(애착): 세대·나이·자녀·친구 수. 이 아이가 살아온 이야기를 한 줄로.
 	draw_string(font, Vector2(12, 70),
-		"%d세대째   ·   %.0f살" % [_creature.generation, _creature.age],
+		"%d세대째  ·  %.0f살  ·  자녀 %d  ·  친구 %d" % [
+			_creature.generation, _creature.age, _creature.children_count, _creature.get_friend_count()],
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_SIZE.x - 24, 12, Color(0.72, 0.78, 0.86))
 	# 보이는 형질(크기·색·가소성) — 무리가 어떻게 갈라지는지 한눈에.
 	draw_string(font, Vector2(12, 88), "크기 %.2f   ·   색 계통   ·   가소성 %.2f" % [
