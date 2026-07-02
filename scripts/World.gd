@@ -170,12 +170,12 @@ class_name World
 ## 반드시 개체 sense_radius(기본 220) 이상이어야 3x3 조회로 충분하다.
 @export var grid_cell_size: float = 240.0
 
-@export_group("진단/실험")
+@export_group("행동/AI")
 ## 매 틱 하드코딩 생존 보정(갈증 반사 드라이브 · 생활권 복귀 · 욕구 재확립 · 만족 사교)을 켜고 끈다.
-## 끄면 개체 행동이 순수 신경망(+창시자 본능 가중치 instinct_strength)만으로 결정된다.
-## AI 기여도 진단용: instinct_strength·이 값·learning_enabled 세 축을 조합해 "신경망이 실제로
-## 얼마나 행동을 책임지나"를 계측한다. 프로덕션 기본값은 true(현재 동작 유지).
-@export var survival_scaffolding: bool = true
+## 2026-07-02 방향 C(docs/AI_DIAGNOSIS.md): 계측 결과 이 안전망은 불필요하며 오히려 채집·수명을
+## 낮추는 역효과였다(본능이 안정성을 100% 책임짐, 포식 압력에서도 없이 안정). 그래서 기본 OFF로
+## 전환해 코드·행동을 단순화하고 창발 여지를 회복한다. true로 켜면 옛 안전망 동작(비교·디버그용).
+@export var survival_scaffolding: bool = false
 
 @onready var _creatures: Node2D = $Creatures
 @onready var _food: Node2D = $Food
