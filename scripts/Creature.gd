@@ -375,7 +375,7 @@ func _physics_process(delta: float) -> void:
 	if energy <= 0.0:
 		_alive = false
 		if _world != null:
-			_world.report_death(age)
+			_world.report_death(age, position)
 		queue_free()
 		return
 
