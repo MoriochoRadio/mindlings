@@ -23,7 +23,12 @@ func _ready() -> void:
 	_update_level_redraw()
 
 func _process(delta: float) -> void:
-	if amount < capacity:
+	# 가뭄이면 재생을 멈추고 증발해 말라간다(위기). 평시엔 서서히 재생.
+	if _world != null and _world.is_drought():
+		if amount > 0.0:
+			amount = maxf(0.0, amount - _world.drought_evaporation_rate() * delta)
+			_update_level_redraw()
+	elif amount < capacity:
 		amount = minf(capacity, amount + regen_rate * delta)
 		_update_level_redraw()
 

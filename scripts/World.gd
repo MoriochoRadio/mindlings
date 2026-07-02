@@ -170,6 +170,18 @@ class_name World
 ## 반드시 개체 sense_radius(기본 220) 이상이어야 3x3 조회로 충분하다.
 @export var grid_cell_size: float = 240.0
 
+@export_group("위기 이벤트 — 가뭄(재미 프로토타입)")
+## 재미 프로토타입(방향 1+2): '위기→개입→안도' 루프의 첫 검증. 주기적으로 가뭄이 와서 물웅덩이가
+## 마르고, 플레이어가 💧 물 도구로 새 물을 만들어 소수 캐릭터를 구해야 한다(개입에 처음으로 의미가 생김).
+## 재미 없으면 이 그룹만 들어내면 된다(격리 설계).
+@export var drought_enabled: bool = true
+## 평시(가뭄 사이) 지속 시간(초).
+@export var drought_calm_duration: float = 25.0
+## 가뭄 지속 시간(초). 이 동안 물웅덩이가 재생을 멈추고 증발한다.
+@export var drought_duration: float = 20.0
+## 가뭄 중 물웅덩이가 초당 잃는 수분(증발). regen_rate보다 커야 실제로 마른다.
+@export var drought_evaporation: float = 30.0
+
 @export_group("행동/AI")
 ## 매 틱 하드코딩 생존 보정(갈증 반사 드라이브 · 생활권 복귀 · 욕구 재확립 · 만족 사교)을 켜고 끈다.
 ## 2026-07-02 방향 C(docs/AI_DIAGNOSIS.md): 계측 결과 이 안전망은 불필요하며 오히려 채집·수명을
@@ -185,6 +197,10 @@ class_name World
 @onready var _predators: Node2D = $Predators
 
 var _bounds: Rect2 = Rect2()
+
+# 배경 장식(정적) — 풀 다발·흙 패치 위치. _ready에서 한 번 생성해 _draw에서 재사용(깜빡임 방지).
+var _grass: Array[Vector2] = []
+var _patches: Array = []  # [{pos, radius}]
 
 # 위험 경보(소통 1단계). 개체가 위협을 직접 보면 자기 위치에 경보를 방출 → 시간 감쇠 → 주변이 듣는다.
 # 경보 수는 max_alarms로 캡되어(보통 수십 개) 직접 순회로 충분히 가볍다(별도 그리드 불필요).
@@ -234,6 +250,10 @@ var _check_accum: float = 0.0
 var _extinct: bool = false
 var _revive_accum: float = 0.0
 
+# 가뭄 위기(재미 프로토타입). 평시↔가뭄을 오가며 물을 마르게 해 '구조' 개입을 유발한다.
+var _drought_active: bool = false
+var _drought_timer: float = 0.0
+
 # 진단 하네스(환경변수 MINDLINGS_DIAG=1일 때만 활성 — 프로덕션 무영향).
 # 세 축(instinct_strength/survival_scaffolding/learning_enabled)을 env로 override하고,
 # 시뮬 시간 기준으로 인구·세대·수명·채집을 주기 로그 후 자동 종료한다. 헤드리스 배치 실행용.
@@ -261,6 +281,7 @@ func _ready() -> void:
 	add_to_group("world")
 	_bounds = Rect2(Vector2.ZERO, world_size)
 	_apply_diag_env()  # 스폰 전에 실험 파라미터를 override(진단 모드에서만)
+	_generate_decor()  # 배경 장식(풀·흙 패치) 위치를 한 번 생성
 	_spawn_initial()
 	if _diag and _diag_predators > 0:  # 진단: 포식 압력 조건(안전망 유무 × 포식자)
 		for i in _diag_predators:
@@ -327,17 +348,46 @@ func _diag_tick(delta: float) -> void:
 		print("[DIAG] DONE")
 		get_tree().quit()
 
-## 배경 → 벽 → 경계선 순으로 그린다(벽은 개체보다 아래에 깔린다). 로컬 좌표.
-## 벽은 바뀔 때만 다시 그린다(paint/erase 시 queue_redraw) — 매 프레임 비용 없음.
+## 배경 초원 → 흙 패치 → 풀 → 벽 → 경계선 순(모두 개체보다 아래). 정적이라 드물게만 다시 그린다
+## (가뭄 전환·벽 편집 시 queue_redraw). 매 프레임 비용 없음.
 func _draw() -> void:
-	draw_rect(_bounds, Color(0.12, 0.14, 0.18), true)
-	var wall_col := Color(0.34, 0.31, 0.38)       # 차분한 돌빛(은은하게)
+	var dry: bool = _drought_active
+	# 베이스: 평시엔 짙은 초원 청록, 가뭄엔 메마른 황갈빛(위기가 한눈에).
+	var bg: Color = Color(0.22, 0.17, 0.12) if dry else Color(0.11, 0.15, 0.15)
+	draw_rect(_bounds, bg, true)
+	# 부드러운 빛 웅덩이(개활지 느낌 — 밋밋한 단색 탈피). 큰 반투명 밝은 원 두 곳.
+	var glow: Color = Color(0.28, 0.22, 0.15, 0.18) if dry else Color(0.16, 0.22, 0.22, 0.22)
+	draw_circle(_bounds.position + _bounds.size * Vector2(0.35, 0.42), _bounds.size.x * 0.34, glow)
+	draw_circle(_bounds.position + _bounds.size * Vector2(0.72, 0.62), _bounds.size.x * 0.28, glow)
+	# 흙 패치(옅은 얼룩 — 지면 질감).
+	var patch_col: Color = Color(0.26, 0.20, 0.14, 0.28) if dry else Color(0.14, 0.18, 0.15, 0.35)
+	for p in _patches:
+		draw_circle(p.pos, p.radius, patch_col)
+	# 풀 다발(작은 세 잎). 가뭄엔 시든 갈색으로.
+	var grass_col: Color = Color(0.42, 0.36, 0.20, 0.5) if dry else Color(0.28, 0.46, 0.30, 0.55)
+	for g in _grass:
+		if not _cell_blocked(g):
+			draw_line(g, g + Vector2(-1.6, -4.5), grass_col, 1.0)
+			draw_line(g, g + Vector2(0.2, -5.5), grass_col, 1.0)
+			draw_line(g, g + Vector2(1.8, -4.2), grass_col, 1.0)
+	# 벽(돌빛)
+	var wall_col := Color(0.34, 0.31, 0.38)
 	var edge_col := Color(0.42, 0.39, 0.47, 0.6)
 	for cell in _walls:
 		var r := Rect2(cell.x * wall_cell, cell.y * wall_cell, wall_cell, wall_cell)
 		draw_rect(r, wall_col, true)
 		draw_rect(r, edge_col, false, 1.0)
+	# 월드 경계선
 	draw_rect(_bounds, Color(0.30, 0.35, 0.42), false, 2.0)
+
+## 배경 장식 위치를 한 번 생성(정적). 풀 다발과 흙 패치를 월드에 흩뿌린다.
+func _generate_decor() -> void:
+	_grass.clear()
+	_patches.clear()
+	for i in 150:
+		_grass.append(_random_point())
+	for i in 10:
+		_patches.append({"pos": _random_point(), "radius": randf_range(40.0, 90.0)})
 
 func _spawn_initial() -> void:
 	# 먼저 식물 군락을 심는다(각 군락은 _ready에서 주변에 먹이를 즉시 채운다).
@@ -472,6 +522,8 @@ func report_death(age: float) -> void:
 func _process(delta: float) -> void:
 	if _diag:
 		_diag_tick(delta)
+	else:
+		_update_drought(delta)
 	_accumulate_predator_stats(delta)
 	_check_extinction(delta)
 	_herd_repel_cooldown = maxf(0.0, _herd_repel_cooldown - delta)
@@ -483,6 +535,37 @@ func _process(delta: float) -> void:
 	_check_accum = 0.0
 	_check_structure_milestone()
 	_check_lifespan_milestone()
+
+## 가뭄 위기 사이클: 평시↔가뭄을 타이머로 오간다. 전환 순간을 토스트로 알리고 배경을 다시 그린다.
+## 가뭄 중엔 WaterPool이 재생을 멈추고 증발한다(WaterPool._process가 is_drought()를 조회).
+func _update_drought(delta: float) -> void:
+	if not drought_enabled:
+		if _drought_active:  # 런타임에 꺼지면 즉시 평시로
+			_drought_active = false
+			queue_redraw()
+		return
+	_drought_timer += delta
+	if not _drought_active:
+		if _drought_timer >= drought_calm_duration:
+			_drought_active = true
+			_drought_timer = 0.0
+			queue_redraw()
+			_toast("☀️ 가뭄이 시작됐어요! 물이 말라가요 — 💧 물웅덩이를 만들어 아이들을 구해주세요.")
+	else:
+		if _drought_timer >= drought_duration:
+			_drought_active = false
+			_drought_timer = 0.0
+			queue_redraw()
+			if get_population() > 0:
+				_toast("🌧️ 가뭄이 지나갔어요. 다들 무사히 버텨냈네요.")
+
+## WaterPool·연출이 조회: 지금 가뭄인가.
+func is_drought() -> bool:
+	return _drought_active
+
+## 가뭄 중 물웅덩이가 초당 잃는 증발량(WaterPool이 조회).
+func drought_evaporation_rate() -> float:
+	return drought_evaporation
 
 ## 전멸(개체 0): 게임 오버가 아니라 따뜻한 안내. 자동 부활이 켜져 있으면 잠시 뒤 창시자가 깬다.
 func _check_extinction(delta: float) -> void:

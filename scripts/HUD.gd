@@ -39,8 +39,9 @@ func _process(delta: float) -> void:
 		var heard: int = _world.get_alarm_reacting_count()
 		var heard_text: String = "    🗣️ 경보반응: %d" % heard if heard > 0 else ""
 		pred_text = "    포식자: %d    🏠 은신: %d (%d%%)%s" % [pred, sheltered, pct, heard_text]
-	_info_label.text = "개체 수: %d    먹이: %d%s    배속: %s" % [
-		pop, _world.get_food_count(), pred_text, _speed_text()]
+	var crisis: String = "    ☀️ 가뭄! 물을 만들어 구해주세요" if _world.is_drought() else ""
+	_info_label.text = "개체 수: %d    먹이: %d%s%s    배속: %s" % [
+		pop, _world.get_food_count(), pred_text, crisis, _speed_text()]
 	# 평균 뇌는 O(N×연결)이라 매 프레임 돌리지 않고 ~0.4초마다 갱신(성능).
 	_stats_accum += delta
 	if _stats_accum >= 0.4:

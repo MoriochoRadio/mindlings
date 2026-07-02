@@ -180,6 +180,8 @@ var _stuck_ref: Vector2 = Vector2.ZERO # 끼임 감지 기준 위치
 var _nudge_timer: float = 0.0          # >0이면 탈출 넛지 중
 var _nudge_dir: Vector2 = Vector2.ZERO # 탈출 방향(열린 쪽)
 var _color_step: int = -1              # 에너지→색 양자화 단계(바뀔 때만 다시 그림 — 성능)
+var _walk_phase: float = 0.0           # 걷기 애니메이션 위상(이동 중 증가 — 다리·팔·몸 흔들림)
+var _face: float = 1.0                 # 바라보는 방향(+1 오른쪽 / -1 왼쪽) — 몸은 안 눕고 좌우만 뒤집는다
 var _name_tag: NameTag = null          # 머리 위 이름표(소수를 개인으로)
 # 생애 내 학습(AI 정교화 2단계)
 var _prev_pred_near: float = 0.0       # 위협도 변화(탈출=보상, 접근=벌) 계산용
@@ -237,7 +239,8 @@ func _ready() -> void:
 	energy = minf(start_energy, max_energy)
 	water = minf(start_water, max_water)
 	_heading = randf() * TAU
-	rotation = _heading
+	_face = -1.0 if cos(_heading) < 0.0 else 1.0
+	# 몸은 회전시키지 않는다(작은 사람은 눕지 않는다) — 방향은 _face(좌우 뒤집기)로만 표현.
 	_stuck_ref = position
 	_update_color()  # 첫 그리기
 
@@ -251,18 +254,80 @@ func _apply_genes() -> void:
 func _make_name() -> String:
 	return _NAME_SYL[randi() % _NAME_SYL.size()] + _NAME_SYL[randi() % _NAME_SYL.size()]
 
-## '작은 사람'(그레이박스): 몸통 + 머리. +x가 바라보는 방향(rotation=heading). 색은 유전 hue × 에너지.
+## '작은 사람': 머리·몸통·팔·다리·눈·표정 + 그림자 + 걷기 애니메이션. 몸은 눕지 않고(수직 고정),
+## 바라보는 방향은 좌우 뒤집기(_face)로만 표현. 옷=유전 hue×에너지, 머리=피부(배고프면 창백),
+## 머리카락=계보색. 감정(배고픔·두려움·만족)이 눈·입·자세로 드러난다(LEGIBILITY 기법6).
 func _draw() -> void:
-	var col: Color = body_color()
-	var outline := Color(0.0, 0.0, 0.0, 0.28)
-	draw_circle(Vector2(-1.0, 0.0), 6.0, col)                 # 몸통
-	draw_arc(Vector2(-1.0, 0.0), 6.0, 0.0, TAU, 18, outline, 1.0)
-	draw_circle(Vector2(5.2, 0.0), 3.6, col.lightened(0.18))  # 머리(앞쪽)
-	draw_arc(Vector2(5.2, 0.0), 3.6, 0.0, TAU, 14, outline, 1.0)
+	var e: float = clampf(energy / max_energy, 0.0, 1.0)
+	var threat: float = 0.0
+	if _last_sense.size() > BrainBuilder.IN_PRED_NEAR:
+		threat = _last_sense[BrainBuilder.IN_PRED_NEAR]
+	var moving: bool = _drive.length() > 0.15
+	var swing: float = sin(_walk_phase) if moving else 0.0        # 다리·팔 앞뒤 흔들
+	var bob: float = -absf(sin(_walk_phase * 2.0)) * 0.9 if moving else 0.0  # 걸을 때 몸 상하
+	var crouch: float = threat * 2.4                              # 위협 시 움츠림(아래로 웅크림)
+	var base_y: float = bob + crouch
+
+	var cloth: Color = body_color()                              # 옷(에너지로 채도·명도 변조)
+	var skin: Color = Color(0.98, 0.85, 0.72).lerp(Color(0.62, 0.55, 0.55), 1.0 - e)  # 배고프면 창백
+	var hair: Color = trait_color().darkened(0.35)              # 계보색 머리카락
+	var outline := Color(0.06, 0.05, 0.10, 0.5)
+
+	# 그림자(발밑, 눌린 타원). flip 전에 — 대칭이라 방향 무관.
+	draw_set_transform(Vector2(0.0, 9.5), 0.0, Vector2(1.0, 0.4))
+	draw_circle(Vector2.ZERO, 5.8, Color(0.0, 0.0, 0.0, 0.20))
+	# 바라보는 방향으로 좌우 뒤집기 — 이후 모든 파츠에 적용.
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_face, 1.0))
+
+	var lsw: float = swing * 2.4
+	# 다리(두 개, 걷기 반대 위상)
+	draw_line(Vector2(-2.2, base_y + 3.5), Vector2(-2.2 + lsw, base_y + 9.0), cloth.darkened(0.35), 2.4)
+	draw_line(Vector2(2.2, base_y + 3.5), Vector2(2.2 - lsw, base_y + 9.0), cloth.darkened(0.35), 2.4)
+	# 뒤쪽 팔(몸 뒤, 살짝 어둡게)
+	draw_line(Vector2(-3.8, base_y - 0.5), Vector2(-4.6 - lsw * 0.7, base_y + 4.5), cloth.darkened(0.2), 2.0)
+	# 몸통(둥근 캡슐 = 옷)
+	_draw_capsule(Vector2(0.0, base_y + 0.5), 6.6, 8.5, cloth)
+	# 앞쪽 팔(살색 손 느낌)
+	draw_line(Vector2(3.6, base_y - 0.5), Vector2(4.4 + lsw * 0.7, base_y + 4.5), cloth, 2.0)
+	# 머리 + 머리카락
+	var head: Vector2 = Vector2(0.0, base_y - 8.5)
+	draw_circle(head + Vector2(0.0, -0.8), 5.2, hair)           # 머리카락(뒤통수)
+	draw_circle(head, 4.5, skin)                                # 얼굴
+	draw_arc(head, 4.5, 0.0, TAU, 18, outline, 1.0)
+	# 눈·표정(감정) — 앞쪽(+x)을 향해. flip으로 방향 자동 반영.
+	var eye_dark := Color(0.10, 0.08, 0.14)
+	if e < 0.28:
+		# 배고픔: 처진 눈(짧은 사선)
+		draw_line(head + Vector2(0.8, 0.4), head + Vector2(2.2, -0.2), eye_dark, 1.1)
+		draw_line(head + Vector2(2.6, 0.4), head + Vector2(3.8, -0.2), eye_dark, 1.1)
+	else:
+		var er: float = 0.95 + threat * 0.9                      # 두려우면 눈 커짐
+		draw_circle(head + Vector2(1.5, -0.3), er, eye_dark)
+		draw_circle(head + Vector2(3.3, -0.3), er, eye_dark)
+		if threat < 0.4:                                         # 눈 반짝(생기)
+			draw_circle(head + Vector2(1.8, -0.6), er * 0.35, Color(1, 1, 1, 0.85))
+			draw_circle(head + Vector2(3.6, -0.6), er * 0.35, Color(1, 1, 1, 0.85))
+	# 입
+	if threat > 0.45:
+		draw_circle(head + Vector2(2.4, 2.4), 1.2, Color(0.25, 0.12, 0.15))  # 놀라 벌린 입
+	elif e > 0.82:
+		draw_arc(head + Vector2(2.3, 1.8), 1.4, 0.15, PI - 0.15, 8, Color(0.35, 0.18, 0.2), 1.1)  # 미소
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)          # 변환 리셋(이후 그리기 정상화)
+
 	# 위험 경보 발신 고리(가독성 — 퍼지는 신호). 방출 직후 잠깐 커지며 옅어진다.
 	if _alarm_flash > 0.0:
 		var t: float = _alarm_flash / maxf(0.01, alarm_cue_duration)  # 1→0
-		draw_arc(Vector2.ZERO, lerpf(7.0, 20.0, 1.0 - t), 0.0, TAU, 20, Color(1.0, 0.55, 0.3, t), 2.0)
+		draw_arc(Vector2.ZERO, lerpf(9.0, 24.0, 1.0 - t), 0.0, TAU, 20, Color(1.0, 0.55, 0.3, t), 2.0)
+
+## 세로 캡슐(둥근 알약) — 몸통용. 위·아래 반원 + 가운데 사각.
+func _draw_capsule(c: Vector2, w: float, h: float, col: Color) -> void:
+	var hw: float = w * 0.5
+	var r: float = hw
+	var top: float = c.y - h * 0.5 + r
+	var bot: float = c.y + h * 0.5 - r
+	draw_circle(Vector2(c.x, top), r, col)
+	draw_circle(Vector2(c.x, bot), r, col)
+	draw_rect(Rect2(c.x - hw, top, w, bot - top), col)
 
 ## 렌더 색: 유전 hue(계보) + 에너지로 채도/명도 변조(배고프면 칙칙·어둡게 — 가독성 기법6).
 func body_color() -> Color:
@@ -411,14 +476,22 @@ func _physics_process(delta: float) -> void:
 		_drive = _world.slide_at_bounds(position, _drive)
 	if _drive.length() > 0.01:
 		_heading = _drive.angle()
-		rotation = _heading
+		if absf(_drive.x) > 0.05:  # 좌우로 움직일 때만 바라보는 방향 갱신(위아래 이동엔 유지)
+			_face = -1.0 if _drive.x < 0.0 else 1.0
 
 	var desired: Vector2 = position + _drive * speed * delta
 	if _world != null:
 		desired = _world.resolve_move(position, desired)  # 벽을 통과 못 하고 따라 미끄러진다
 	position = desired.clamp(_bounds.position, _bounds.end)
 	_update_stuck(delta)  # 한 칸 오목한 곳 등에 끼면 열린 쪽으로 넛지
-	_update_color()
+	# 걷기 애니메이션: 이동 중이면 위상을 돌리고 매 프레임 다시 그린다(소수라 가벼움).
+	# 멈춰 있으면 상태(에너지 색)가 바뀔 때만 그린다(성능).
+	if _drive.length() > 0.15:
+		_walk_phase += delta * 11.0
+		_color_step = -999  # 다음 정지 시 색 강제 갱신
+		queue_redraw()
+	else:
+		_update_color()
 	if _name_tag != null:
 		_name_tag.global_position = global_position  # 이름표를 머리 위에 따라붙임
 
