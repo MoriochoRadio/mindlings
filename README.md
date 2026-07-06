@@ -8,12 +8,12 @@
 > 코드는 자유롭게 구경하셔도 좋습니다.
 
 ## 기술 스택
-- 엔진: **Godot 4.4+** / 언어: **GDScript**
+- 엔진: **Godot 4.6+** / 언어: **GDScript**
 - AI: **NEAT** (GDScript 네이티브)
 - 형상관리: Git + GitHub
 
 ## 실행
-1. [Godot 4.4+](https://godotengine.org/download) 설치.
+1. [Godot 4.6+](https://godotengine.org/download) 설치 (프로젝트가 4.6 기능 플래그를 사용).
 2. 이 저장소를 클론한 뒤 Godot 에디터에서 `project.godot`를 연다.
 3. F5로 실행 — 메인 씬은 `scenes/Main.tscn`.
 
